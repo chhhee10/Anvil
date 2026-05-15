@@ -47,5 +47,7 @@ ENV/
 Thumbs.db
 
 # Local dev / scratch (not part of the product)
+scratch/
+create_prs.sh
 trigger_test.py
 Building Autonomous Multi-Agent Pipeline.md
