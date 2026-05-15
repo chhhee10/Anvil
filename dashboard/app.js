@@ -4,12 +4,17 @@
 let runs = [], filteredRuns = [], activeRunId = null, activeSSE = null;
 
 const AGENT_CONFIG = {
-  orchestrator: { icon: "🧠", label: "Orchestrator" },
-  researcher:   { icon: "🔍", label: "Researcher"   },
-  code_analyst: { icon: "💻", label: "Code Analyst" },
-  writer:       { icon: "✍️",  label: "Writer"       },
-  critic:       { icon: "🎯", label: "Critic"       },
-  system:       { icon: "⚙️",  label: "System"       },
+  orchestrator:     { icon: "🧠", label: "Orchestrator",      color: "rgba(201,74,46,.12)" },
+  pr_reviewer:      { icon: "🔍", label: "PR Reviewer",        color: "rgba(45,95,160,.12)" },
+  security_scanner: { icon: "🔒", label: "Security Scanner",   color: "rgba(184,134,42,.12)" },
+  test_generator:   { icon: "🧪", label: "Test Generator",     color: "rgba(58,125,82,.12)" },
+  self_healer:      { icon: "🔧", label: "Self Healer",        color: "rgba(100,80,200,.12)" },
+  decision_agent:   { icon: "⚖️",  label: "Decision Agent",     color: "rgba(201,74,46,.12)" },
+  researcher:       { icon: "📡", label: "Researcher",         color: "rgba(45,95,160,.12)" },
+  code_analyst:     { icon: "💻", label: "Code Analyst",       color: "rgba(58,125,82,.12)" },
+  writer:           { icon: "✍️",  label: "Writer",             color: "rgba(100,80,200,.12)" },
+  critic:           { icon: "🎯", label: "Critic",             color: "rgba(184,134,42,.12)" },
+  system:           { icon: "⚙️",  label: "System",             color: "rgba(68,68,68,.1)" },
 };
 const EVENT_LABELS = { push:"PUSH", pull_request:"PR", issues:"ISSUE", manual:"MANUAL", scheduled:"SCHED" };
 const STATUS_LABELS = { pending:"PENDING", running:"RUNNING", completed:"DONE", failed:"FAILED" };
@@ -189,16 +194,16 @@ function connectSSE(runId) {
 function appendLiveStep(data) {
   const tl = document.getElementById("timeline");
   if (!tl) return;
-  const cfg = AGENT_CONFIG[data.agent] || { icon: "⚙️", label: data.agent };
+  const cfg = AGENT_CONFIG[data.agent] || { icon: "⚙️", label: data.agent, color: "rgba(68,68,68,.1)" };
   const el = document.createElement("div");
   el.className = "timeline-step";
   el.innerHTML = `
-    <div class="step-icon">${cfg.icon}</div>
+    <div class="step-icon" style="background:${cfg.color};border-color:${cfg.color}">${cfg.icon}</div>
     <div class="step-body">
       <div class="step-agent">${cfg.label}</div>
       <div class="step-message">${escHtml(data.message || "")}</div>
     </div>
-    <span class="step-spinner">⟳</span>`;
+    <div class="step-right"><span class="step-spinner">↻</span></div>`;
   tl.appendChild(el);
   el.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -264,22 +269,32 @@ function renderScores(s) {
 function renderTimeline(steps) {
   if (!steps?.length) return `<div class="timeline-empty">No steps yet…</div>`;
   return steps.map(s => {
-    const cfg = AGENT_CONFIG[s.agent] || { icon: "⚙️", label: s.agent };
-    const dur = s.completed_at && s.started_at ? `${((new Date(s.completed_at) - new Date(s.started_at))/1000).toFixed(1)}s` : "";
+    const cfg = AGENT_CONFIG[s.agent] || { icon: "⚙️", label: s.agent, color: "rgba(68,68,68,.1)" };
+    const dur = s.completed_at && s.started_at
+      ? `${((new Date(s.completed_at) - new Date(s.started_at)) / 1000).toFixed(1)}s`
+      : "";
     const isRunning = s.status === "started";
+    const statusIcons = { completed: "✅", failed: "❌", skipped: "⏭️" };
+
+    // Build meta line
     const meta = [];
-    if (dur) meta.push(dur);
     if (s.metadata?.searches) meta.push(`${s.metadata.searches} searches`);
-    if (s.metadata?.chars) meta.push(`${(s.metadata.chars/1000).toFixed(1)}k chars`);
-    const icons = { completed:"✅", failed:"❌", skipped:"⏭️" };
+    if (s.metadata?.chars)    meta.push(`${(s.metadata.chars / 1000).toFixed(1)}k chars`);
+    if (s.metadata?.files)    meta.push(`${s.metadata.files} files`);
+
     return `<div class="timeline-step">
-      <div class="step-icon">${cfg.icon}</div>
+      <div class="step-icon" style="background:${cfg.color};border-color:${cfg.color}">${cfg.icon}</div>
       <div class="step-body">
         <div class="step-agent">${cfg.label}</div>
         <div class="step-message">${escHtml(s.message || "")}</div>
         ${meta.length ? `<div class="step-meta">${meta.join(" · ")}</div>` : ""}
       </div>
-      ${isRunning ? `<span class="step-spinner">⟳</span>` : `<span class="step-status-icon">${icons[s.status] || ""}</span>`}
+      <div class="step-right">
+        ${dur ? `<span class="step-dur">${dur}</span>` : ""}
+        ${isRunning
+          ? `<span class="step-spinner">↻</span>`
+          : `<span class="step-status-icon">${statusIcons[s.status] || ""}</span>`}
+      </div>
     </div>`;
   }).join("");
 }
@@ -347,9 +362,9 @@ async function submitTrigger() {
     const data = await res.json();
     closeTriggerModal();
     ["topicInput","repoInput","contextInput"].forEach(id => document.getElementById(id).value = "");
-    scrollToDashboard();
+    setTimeout(() => scrollToDashboard(), 150);
     await fetchRuns();
-    setTimeout(() => selectRun(data.run_id), 300);
+    setTimeout(() => selectRun(data.run_id), 400);
   } catch (e) {
     lbl.textContent = "❌ ERROR";
     setTimeout(() => { lbl.textContent = "▶ LAUNCH"; btn.disabled = false; }, 3000);
