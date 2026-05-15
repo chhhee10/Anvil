@@ -23,7 +23,7 @@ import omium
 from omium import OmiumConfig
 
 # Initialize Omium Observability
-omium.init(project="NewsRoom AI")
+# omium.init(project="NewsRoom AI")
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware

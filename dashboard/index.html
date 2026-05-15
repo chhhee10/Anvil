@@ -1,157 +1,306 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NewsRoom AI — Autonomous Intel Pipeline</title>
-  <meta name="description" content="Multi-agent AI pipeline that autonomously researches and reports on tech events" />
+  <title>ANVIL — Autonomous PR Review Pipeline</title>
+  <meta name="description" content="Multi-agent autonomous PR review pipeline with live updates." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <!-- Background Effects -->
-  <div class="bg-grid"></div>
-  <div class="bg-glow glow-1"></div>
-  <div class="bg-glow glow-2"></div>
 
-  <!-- Header -->
-  <header class="header">
-    <div class="header-inner">
-      <div class="logo">
-        <div class="logo-icon">⚡</div>
-        <div class="logo-text">
-          <span class="logo-name">NewsRoom AI</span>
-          <span class="logo-sub">Autonomous Intel Pipeline</span>
+<body>
+
+  <!-- ═══ NAV ═══ -->
+  <nav class="nav" id="nav">
+    <div class="nav-logo">
+      <span>⚒</span>
+      <span>ANVIL</span>
+    </div>
+    <div class="nav-links">
+      <a href="#about" class="nav-link">ABOUT</a>
+      <a href="#dashboard" class="nav-link">DASHBOARD</a>
+    </div>
+    <div class="nav-right">
+      <button class="btn-cta" onclick="openTriggerModal()">NEW RUN →</button>
+    </div>
+  </nav>
+
+  <!-- ═══ HERO ═══ -->
+  <section class="hero" id="hero">
+
+    <div class="hero-content">
+      <h1 class="hero-title">
+        We review your pull requests,<br>
+        <em>automatically.</em>
+      </h1>
+    </div>
+
+    <!-- FLIP CARDS -->
+    <div class="cards-row">
+
+      <div class="flip-card" style="--card-offset: 0px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-cream">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">🧠</div>
+              <div class="fc-watermark">01</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">ORCHESTRATOR</span><span class="fc-num">01</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">01</div>
+            <div class="fc-back-title">Orchestrator</div>
+            <ul class="fc-back-list">
+              <li>■ Analyzes PR events</li>
+              <li>■ Creates research plans</li>
+              <li>■ Fan-out via asyncio</li>
+              <li>■ Pipeline state mgmt</li>
+              <li>■ Crash recovery</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
         </div>
       </div>
-      <div class="header-actions">
-        <div class="status-badge" id="serverStatus">
-          <span class="status-dot"></span>
-          <span>Live</span>
+
+      <div class="flip-card" style="--card-offset: -24px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-red">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">🔍</div>
+              <div class="fc-watermark">02</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">RESEARCHER</span><span class="fc-num">02</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">02</div>
+            <div class="fc-back-title">Researcher</div>
+            <ul class="fc-back-list">
+              <li>■ Multi-hop web search</li>
+              <li>■ Security advisories</li>
+              <li>■ Ecosystem trends</li>
+              <li>■ Tavily API</li>
+              <li>■ Parallel tasks</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
         </div>
-        <button class="btn btn-primary" id="triggerBtn" onclick="openTriggerModal()">
-          <span>+ New Run</span>
-        </button>
+      </div>
+
+      <div class="flip-card" style="--card-offset: -12px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-blue">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">💻</div>
+              <div class="fc-watermark">03</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">CODE ANALYST</span><span class="fc-num">03</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">03</div>
+            <div class="fc-back-title">Code Analyst</div>
+            <ul class="fc-back-list">
+              <li>■ Diff & patch analysis</li>
+              <li>■ Breaking changes</li>
+              <li>■ Security scanning</li>
+              <li>■ Perf impact notes</li>
+              <li>■ GitHub API</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flip-card" style="--card-offset: -36px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-teal">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">🎯</div>
+              <div class="fc-watermark">04</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">CRITIC</span><span class="fc-num">04</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">04</div>
+            <div class="fc-back-title">Critic</div>
+            <ul class="fc-back-list">
+              <li>■ Accuracy scoring</li>
+              <li>■ Completeness eval</li>
+              <li>■ Actionability rating</li>
+              <li>■ Revision requests</li>
+              <li>■ Writer feedback loop</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /cards-row -->
+
+    <span class="hero-scroll-hint">SCROLL DOWN</span>
+    <div class="hero-clock" id="heroClock"></div>
+  </section>
+
+  <!-- ═══ SCROLL-REVEAL ABOUT ═══ -->
+  <section class="about" id="about">
+    <div class="about-inner">
+      <div class="about-label">WHAT IS ANVIL?</div>
+      <p class="reveal-text" id="revealText">ANVIL is a multi-agent autonomous pipeline that reviews your pull requests
+        without human intervention. We combine five specialized AI agents — Orchestrator, Researcher, Code Analyst,
+        Writer, and Critic — working in parallel to deliver comprehensive PR reviews in seconds, not hours. Each run is
+        webhook-triggered, fully autonomous, and streamed live to your dashboard.</p>
+    </div>
+  </section>
+
+  <!-- ═══ DASHBOARD ═══ -->
+  <section class="dash-section" id="dashboard">
+    <div class="dash-inner">
+
+      <div class="dash-header">
+        <div class="dash-title-group">
+          <div class="dash-eyebrow">LIVE PIPELINE</div>
+          <h2 class="dash-title">Activity Log</h2>
+        </div>
+        <div class="dash-header-right">
+          <div class="dash-stats-row" id="dashStatsRow">
+            <div class="dash-stat"><span id="dTotal">0</span><span>TOTAL</span></div>
+            <div class="dash-stat dash-stat-green"><span id="dDone">0</span><span>DONE</span></div>
+            <div class="dash-stat dash-stat-blue"><span id="dRunning">0</span><span>RUNNING</span></div>
+            <div class="dash-stat dash-stat-red"><span id="dFailed">0</span><span>FAILED</span></div>
+          </div>
+          <button class="btn-cta" onclick="openTriggerModal()">+ NEW RUN</button>
+        </div>
+      </div>
+
+      <div class="dash-body">
+        <!-- Sidebar: run list -->
+        <div class="dash-sidebar">
+          <div class="dash-sidebar-head">
+            <span class="dash-sidebar-label">RUNS</span>
+            <span id="runCount" class="dash-run-count">0</span>
+          </div>
+          <div class="dash-search">
+            <input type="text" id="searchInput" class="dash-search-input" placeholder="Search runs..."
+              oninput="filterRuns()" />
+          </div>
+          <div class="dash-run-list" id="runList">
+            <div class="dash-empty">
+              <div class="dash-empty-icon">⚙</div>
+              <p>No runs yet.<br>Click NEW RUN to start.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Detail pane -->
+        <div class="dash-detail" id="detailPane">
+          <div class="dash-detail-empty" id="detailEmpty">
+            <div class="dash-empty-icon">◈</div>
+            <p>Select a run to view<br>the detailed report.</p>
+            <div class="dash-feature-grid">
+              <div class="dash-feature">📡<span>WEBHOOK TRIGGERED</span></div>
+              <div class="dash-feature">🤖<span>5 AGENTS</span></div>
+              <div class="dash-feature">🔍<span>CODE ANALYSIS</span></div>
+              <div class="dash-feature">🎯<span>CRITIC SCORING</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="footer">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <div class="footer-logo">⚒ ANVIL</div>
+        <p class="footer-sub">Autonomous PR Review Pipeline<br>Powered by Groq Llama 3.3 · 2026</p>
+      </div>
+      <div class="footer-links">
+        <a href="#hero">HOME</a>
+        <a href="#about">ABOUT</a>
+        <a href="#dashboard">DASHBOARD</a>
+      </div>
+      <div class="footer-right">
+        <div class="footer-agents">
+          <span>🧠 Orchestrator</span>
+          <span>🔍 Researcher</span>
+          <span>💻 Code Analyst</span>
+          <span>✍️ Writer</span>
+          <span>🎯 Critic</span>
+        </div>
       </div>
     </div>
-  </header>
+    <div class="footer-bar">2026 / ANVIL Pipeline · Multi-Agent Autonomous PR Review</div>
+  </footer>
 
-  <!-- Main Layout -->
-  <main class="main">
-    <!-- Left: Run List -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <h2 class="sidebar-title">Pipeline Runs</h2>
-        <div class="run-count" id="runCount">0 runs</div>
-      </div>
-      <div class="run-list" id="runList">
-        <div class="empty-state">
-          <div class="empty-icon">🤖</div>
-          <p>No runs yet.<br/>Trigger a manual run or set up a GitHub webhook.</p>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Right: Run Detail -->
-    <section class="detail-pane" id="detailPane">
-      <div class="detail-empty">
-        <div class="detail-empty-icon">🔍</div>
-        <h3>Select a run to inspect</h3>
-        <p>Click any pipeline run on the left to see the agent trace, scores, and the generated intelligence report.</p>
-        <div class="detail-hints">
-          <div class="hint">
-            <span class="hint-icon">📡</span>
-            <span>Webhook-triggered from GitHub events</span>
-          </div>
-          <div class="hint">
-            <span class="hint-icon">🤖</span>
-            <span>5 specialized agents collaborate</span>
-          </div>
-          <div class="hint">
-            <span class="hint-icon">🔬</span>
-            <span>Multi-hop web research via Tavily</span>
-          </div>
-          <div class="hint">
-            <span class="hint-icon">📝</span>
-            <span>Writer + Critic review loop</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- Trigger Modal -->
+  <!-- ═══ TRIGGER MODAL ═══ -->
   <div class="modal-overlay" id="triggerModal" onclick="closeTriggerModalIfOutside(event)">
-    <div class="modal">
-      <div class="modal-header">
-        <h3>🚀 Trigger New Pipeline Run</h3>
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span>⚒ NEW MANUAL PR RUN</span>
         <button class="modal-close" onclick="closeTriggerModal()">✕</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label for="topicInput">Research Topic <span class="required">*</span></label>
-          <input
-            type="text"
-            id="topicInput"
-            placeholder="e.g. React 19 concurrent features and ecosystem impact"
-            class="form-input"
-          />
+          <label for="topicInput">PR / TOPIC <span class="req">*</span></label>
+          <input type="text" id="topicInput" class="form-input" placeholder="e.g. feat: add OAuth2 login flow" />
         </div>
         <div class="form-group">
-          <label for="repoInput">GitHub Repo <span class="optional">(optional)</span></label>
-          <input
-            type="text"
-            id="repoInput"
-            placeholder="e.g. vercel/next.js"
-            class="form-input"
-          />
+          <label for="repoInput">REPO <span class="opt">(optional)</span></label>
+          <input type="text" id="repoInput" class="form-input" placeholder="e.g. user/repo" />
         </div>
         <div class="form-group">
-          <label for="contextInput">Additional Context <span class="optional">(optional)</span></label>
-          <textarea
-            id="contextInput"
-            placeholder="Any additional context for the agents..."
-            class="form-textarea"
-            rows="3"
-          ></textarea>
+          <label for="contextInput">CONTEXT <span class="opt">(optional)</span></label>
+          <textarea id="contextInput" class="form-input form-textarea" placeholder="Additional notes..."
+            rows="3"></textarea>
         </div>
-        <div class="example-topics">
-          <div class="example-label">Quick examples:</div>
-          <div class="examples-grid">
-            <button class="example-pill" onclick="setTopic('Python 3.13 performance improvements and ecosystem adoption')">Python 3.13 perf</button>
-            <button class="example-pill" onclick="setTopic('Security implications of the recent npm supply chain attacks')">npm security</button>
-            <button class="example-pill" onclick="setTopic('LLM inference optimization techniques in 2025')">LLM inference</button>
-            <button class="example-pill" onclick="setTopic('WebAssembly WASI and server-side adoption trends')">WASM trends</button>
-          </div>
+        <div class="example-row">
+          <span class="example-label">EXAMPLES:</span>
+          <button class="example-chip" onclick="setTopic('fix: resolve race condition in auth middleware')">auth
+            fix</button>
+          <button class="example-chip" onclick="setTopic('feat: add rate limiter with Redis backing')">rate
+            limiter</button>
+          <button class="example-chip" onclick="setTopic('refactor: migrate ORM queries to async')">async ORM</button>
+          <button class="example-chip" onclick="setTopic('security: patch SQL injection in user search')">SQL
+            patch</button>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeTriggerModal()">Cancel</button>
-        <button class="btn btn-primary" id="submitTrigger" onclick="submitTrigger()">
-          <span id="submitLabel">▶ Launch Pipeline</span>
+        <button class="btn-ghost" onclick="closeTriggerModal()">CANCEL</button>
+        <button class="btn-cta" id="submitTrigger" onclick="submitTrigger()">
+          <span id="submitLabel">▶ LAUNCH</span>
         </button>
       </div>
     </div>
   </div>
 
-  <!-- Report Modal -->
-  <div class="modal-overlay report-modal-overlay" id="reportModal" onclick="closeReportModalIfOutside(event)">
-    <div class="modal modal-wide">
-      <div class="modal-header">
-        <h3 id="reportModalTitle">📄 Intelligence Report</h3>
-        <div class="report-header-actions">
-          <button class="btn btn-ghost btn-sm" onclick="copyReport()">📋 Copy</button>
+  <!-- ═══ REPORT MODAL ═══ -->
+  <div class="modal-overlay" id="reportModal" onclick="closeReportModalIfOutside(event)">
+    <div class="modal-box modal-wide">
+      <div class="modal-titlebar">
+        <span id="reportModalTitle">📄 REVIEW REPORT</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn-ghost btn-sm" onclick="copyReport()">📋 COPY</button>
           <button class="modal-close" onclick="closeReportModal()">✕</button>
         </div>
       </div>
       <div class="modal-body report-body" id="reportModalBody">
-        <div class="report-loading">Loading report...</div>
+        <div class="report-loading">LOADING REPORT...</div>
       </div>
     </div>
   </div>
 
   <script src="app.js"></script>
 </body>
+
 </html>
