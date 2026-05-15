@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NewsRoom AI — Autonomous Intel Pipeline</title>
+  <meta name="description" content="Multi-agent AI pipeline that autonomously researches and reports on tech events" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Background Effects -->
+  <div class="bg-grid"></div>
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <div class="logo-text">
+          <span class="logo-name">NewsRoom AI</span>
+          <span class="logo-sub">Autonomous Intel Pipeline</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="status-badge" id="serverStatus">
+          <span class="status-dot"></span>
+          <span>Live</span>
+        </div>
+        <button class="btn btn-primary" id="triggerBtn" onclick="openTriggerModal()">
+          <span>+ New Run</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <main class="main">
+    <!-- Left: Run List -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2 class="sidebar-title">Pipeline Runs</h2>
+        <div class="run-count" id="runCount">0 runs</div>
+      </div>
+      <div class="run-list" id="runList">
+        <div class="empty-state">
+          <div class="empty-icon">🤖</div>
+          <p>No runs yet.<br/>Trigger a manual run or set up a GitHub webhook.</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Right: Run Detail -->
+    <section class="detail-pane" id="detailPane">
+      <div class="detail-empty">
+        <div class="detail-empty-icon">🔍</div>
+        <h3>Select a run to inspect</h3>
+        <p>Click any pipeline run on the left to see the agent trace, scores, and the generated intelligence report.</p>
+        <div class="detail-hints">
+          <div class="hint">
+            <span class="hint-icon">📡</span>
+            <span>Webhook-triggered from GitHub events</span>
+          </div>
+          <div class="hint">
+            <span class="hint-icon">🤖</span>
+            <span>5 specialized agents collaborate</span>
+          </div>
+          <div class="hint">
+            <span class="hint-icon">🔬</span>
+            <span>Multi-hop web research via Tavily</span>
+          </div>
+          <div class="hint">
+            <span class="hint-icon">📝</span>
+            <span>Writer + Critic review loop</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Trigger Modal -->
+  <div class="modal-overlay" id="triggerModal" onclick="closeTriggerModalIfOutside(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>🚀 Trigger New Pipeline Run</h3>
+        <button class="modal-close" onclick="closeTriggerModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="topicInput">Research Topic <span class="required">*</span></label>
+          <input
+            type="text"
+            id="topicInput"
+            placeholder="e.g. React 19 concurrent features and ecosystem impact"
+            class="form-input"
+          />
+        </div>
+        <div class="form-group">
+          <label for="repoInput">GitHub Repo <span class="optional">(optional)</span></label>
+          <input
+            type="text"
+            id="repoInput"
+            placeholder="e.g. vercel/next.js"
+            class="form-input"
+          />
+        </div>
+        <div class="form-group">
+          <label for="contextInput">Additional Context <span class="optional">(optional)</span></label>
+          <textarea
+            id="contextInput"
+            placeholder="Any additional context for the agents..."
+            class="form-textarea"
+            rows="3"
+          ></textarea>
+        </div>
+        <div class="example-topics">
+          <div class="example-label">Quick examples:</div>
+          <div class="examples-grid">
+            <button class="example-pill" onclick="setTopic('Python 3.13 performance improvements and ecosystem adoption')">Python 3.13 perf</button>
+            <button class="example-pill" onclick="setTopic('Security implications of the recent npm supply chain attacks')">npm security</button>
+            <button class="example-pill" onclick="setTopic('LLM inference optimization techniques in 2025')">LLM inference</button>
+            <button class="example-pill" onclick="setTopic('WebAssembly WASI and server-side adoption trends')">WASM trends</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeTriggerModal()">Cancel</button>
+        <button class="btn btn-primary" id="submitTrigger" onclick="submitTrigger()">
+          <span id="submitLabel">▶ Launch Pipeline</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report Modal -->
+  <div class="modal-overlay report-modal-overlay" id="reportModal" onclick="closeReportModalIfOutside(event)">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h3 id="reportModalTitle">📄 Intelligence Report</h3>
+        <div class="report-header-actions">
+          <button class="btn btn-ghost btn-sm" onclick="copyReport()">📋 Copy</button>
+          <button class="modal-close" onclick="closeReportModal()">✕</button>
+        </div>
+      </div>
+      <div class="modal-body report-body" id="reportModalBody">
+        <div class="report-loading">Loading report...</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

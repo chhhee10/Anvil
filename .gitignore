@@ -1,0 +1,26 @@
+# NewsRoom AI - Git Ignore
+
+# Environment Variables (CRITICAL)
+.env
+
+# Local Database
+newsroom.db
+newsroom.db-journal
+
+# Generated Content
+reports/
+logs/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+env/
+venv/
+ENV/
+
+# System files
+.DS_Store
+Thumbs.db
