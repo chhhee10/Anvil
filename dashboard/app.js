@@ -1,51 +1,107 @@
-/* ═══════════════════════════════════════════════════════════════════
-   NewsRoom AI — Dashboard JS
-   Handles: run list polling, SSE live updates, trigger modal,
-            report modal with markdown rendering, agent timeline
-   ═══════════════════════════════════════════════════════════════════ */
-
+/**
+ * QualityEngine AI — Dashboard skeleton
+ * -------------------------------------
+ * Partner: restyle via style.css. Logic + DOM hooks are stable.
+ * See dashboard/README.md for SSE events and API contract.
+ */
 "use strict";
 
-// ─── State ──────────────────────────────────────────────────────────
+// ─── Agent registry (matches backend AgentName) ─────────────────────
+const AGENTS = [
+  { id: "orchestrator",      label: "Orchestrator",      parallel: false },
+  { id: "pr_reviewer",       label: "PR Reviewer",       parallel: true,  group: "review" },
+  { id: "security_scanner",  label: "Security Scanner",  parallel: true,  group: "review" },
+  { id: "test_generator",    label: "Test Generator",    parallel: false },
+  { id: "self_healer",       label: "Self-Healer",       parallel: false, optional: true },
+  { id: "decision_agent",    label: "Decision Agent",    parallel: false },
+  { id: "system",            label: "GitHub Actions",    parallel: false },
+];
+
+const AGENT_MAP = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
+
+const VERDICT_CLASS = {
+  MERGE: "verdict-merge",
+  MERGE_WITH_FIX: "verdict-merge-fix",
+  REJECT: "verdict-reject",
+  BUG_REPORT: "verdict-bug",
+  SKIPPED: "verdict-skipped",
+};
+
+const SCORE_KEYS = [
+  { key: "overall",        label: "Overall" },
+  { key: "correctness",    label: "Correctness" },
+  { key: "security",       label: "Security" },
+  { key: "test_coverage",  label: "Tests" },
+  { key: "code_quality",   label: "Quality" },
+  { key: "risk",           label: "Risk" },
+];
+
+// ─── State ───────────────────────────────────────────────────────────
 let runs = [];
 let activeRunId = null;
 let activeSSE = null;
-let pollingTimer = null;
+let pollTimer = null;
 
-// ─── Agent config ────────────────────────────────────────────────────
-const AGENT_CONFIG = {
-  orchestrator: { icon: "🧠", label: "Orchestrator" },
-  researcher:   { icon: "🔍", label: "Researcher"   },
-  code_analyst: { icon: "💻", label: "Code Analyst" },
-  writer:       { icon: "✍️",  label: "Writer"       },
-  critic:       { icon: "🎯", label: "Critic"       },
-  system:       { icon: "⚙️",  label: "System"       },
+/** Live SSE payload cache for the selected run */
+const liveState = {
+  plan: null,
+  review: null,
+  security: null,
+  tests: null,
+  heals: [],
+  verdict: null,
+  stepper: {}, // agentId -> pending | active | done | failed | skipped
 };
 
-const EVENT_LABELS = {
-  push: "Push", pull_request: "Pull Request",
-  issues: "Issues", manual: "Manual", scheduled: "Scheduled",
-};
+// ─── DOM refs ────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
 
 // ─── Init ────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+  buildAgentStepper();
+  bindUI();
+  checkHealth();
   fetchRuns();
-  startPolling();
-});
-
-function startPolling() {
-  pollingTimer = setInterval(() => {
+  pollTimer = setInterval(() => {
     fetchRuns();
     if (activeRunId) {
-      const run = runs.find(r => r.run_id === activeRunId);
-      if (run && run.status === "running") {
-        fetchRunDetail(activeRunId);
-      }
+      const r = runs.find((x) => x.run_id === activeRunId);
+      if (r?.status === "running") fetchRunDetail(activeRunId);
     }
   }, 4000);
+  setInterval(checkHealth, 30000);
+});
+
+function bindUI() {
+  $("btnOpenTrigger").addEventListener("click", openTriggerModal);
+  $("btnCloseTrigger").addEventListener("click", closeTriggerModal);
+  $("btnCancelTrigger").addEventListener("click", closeTriggerModal);
+  $("triggerForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitTrigger();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeTriggerModal();
+  });
 }
 
-// ─── Fetch runs ───────────────────────────────────────────────────────
+// ─── Health ──────────────────────────────────────────────────────────
+async function checkHealth() {
+  const dot = $("healthDot");
+  const label = $("healthLabel");
+  try {
+    const res = await fetch("/health");
+    if (!res.ok) throw new Error("unhealthy");
+    const data = await res.json();
+    dot.className = "qe-health__dot qe-health__dot--ok";
+    label.textContent = data.service || "Live";
+  } catch {
+    dot.className = "qe-health__dot qe-health__dot--err";
+    label.textContent = "Offline";
+  }
+}
+
+// ─── Runs list ───────────────────────────────────────────────────────
 async function fetchRuns() {
   try {
     const res = await fetch("/status");
@@ -53,58 +109,82 @@ async function fetchRuns() {
     runs = await res.json();
     renderRunList();
   } catch (e) {
-    console.warn("Fetch runs failed:", e);
+    console.warn("fetchRuns:", e);
   }
 }
 
 function renderRunList() {
-  const list = document.getElementById("runList");
-  const count = document.getElementById("runCount");
+  const list = $("runList");
+  const count = $("runCount");
   count.textContent = `${runs.length} run${runs.length !== 1 ? "s" : ""}`;
 
   if (!runs.length) {
     list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🤖</div>
-        <p>No runs yet.<br/>Click <strong>+ New Run</strong> to trigger the pipeline.</p>
+      <div class="qe-empty" data-empty="run-list">
+        <p>No runs yet.</p>
+        <p class="qe-empty__hint">Open a PR webhook or click <strong>Review PR</strong>.</p>
       </div>`;
     return;
   }
 
-  list.innerHTML = runs.map(r => `
-    <div class="run-card${activeRunId === r.run_id ? " active" : ""}"
-         id="card-${r.run_id}"
-         onclick="selectRun('${r.run_id}')">
-      <div class="run-card-top">
-        <span class="run-event-badge event-${r.event_type}">${EVENT_LABELS[r.event_type] || r.event_type}</span>
-        <span class="run-status-dot status-${r.status}"></span>
-      </div>
-      <div class="run-topic">${escHtml(r.topic)}</div>
-      <div class="run-meta">
-        <span class="run-time">${relativeTime(r.created_at)}</span>
-        ${r.repo ? `<span class="run-repo">· ${escHtml(r.repo)}</span>` : ""}
-      </div>
-    </div>
-  `).join("");
+  list.innerHTML = runs
+    .map((r) => {
+      const active = r.run_id === activeRunId ? " qe-run-card--active" : "";
+      const verdict = r.verdict
+        ? `<span class="qe-run-card__verdict ${VERDICT_CLASS[r.verdict] || ""}">${r.verdict}</span>`
+        : "";
+      const score =
+        r.score != null ? `<span class="qe-run-card__score">${Number(r.score).toFixed(1)}</span>` : "";
+      return `
+        <button type="button" class="qe-run-card${active}" data-run-id="${r.run_id}"
+                onclick="selectRun('${r.run_id}')">
+          <div class="qe-run-card__top">
+            <span class="qe-run-card__status qe-run-card__status--${r.status}">${r.status}</span>
+            ${verdict}
+            ${score}
+          </div>
+          <div class="qe-run-card__topic">${esc(r.topic || "Untitled run")}</div>
+          <div class="qe-run-card__meta">
+            ${r.repo ? esc(r.repo) : ""}
+            ${r.pr_number ? ` · PR #${r.pr_number}` : ""}
+            · ${relativeTime(r.created_at)}
+          </div>
+        </button>`;
+    })
+    .join("");
 }
 
-// ─── Select Run ───────────────────────────────────────────────────────
+// ─── Select run ──────────────────────────────────────────────────────
+function resetLiveState() {
+  liveState.plan = null;
+  liveState.review = null;
+  liveState.security = null;
+  liveState.tests = null;
+  liveState.heals = [];
+  liveState.verdict = null;
+  liveState.stepper = {};
+  AGENTS.forEach((a) => {
+    liveState.stepper[a.id] = a.optional ? "skipped" : "pending";
+  });
+  updateStepperUI();
+}
+
 async function selectRun(runId) {
   activeRunId = runId;
+  if (activeSSE) {
+    activeSSE.close();
+    activeSSE = null;
+  }
+  resetLiveState();
+
+  $("detailPlaceholder").hidden = true;
+  $("detailView").hidden = false;
+
   renderRunList();
-
-  // Kill existing SSE
-  if (activeSSE) { activeSSE.close(); activeSSE = null; }
-
-  const run = runs.find(r => r.run_id === runId);
-  if (run) renderDetailSkeleton(run);
-
   await fetchRunDetail(runId);
 
-  // If running, open SSE for live updates
-  if (run && run.status === "running") {
-    connectSSE(runId);
-  }
+  const run = runs.find((r) => r.run_id === runId);
+  if (run?.status === "running") connectSSE(runId);
 }
 
 async function fetchRunDetail(runId) {
@@ -112,374 +192,366 @@ async function fetchRunDetail(runId) {
     const res = await fetch(`/status/${runId}`);
     if (!res.ok) return;
     const detail = await res.json();
-    renderDetail(detail);
+    if (activeRunId !== runId) return;
+    renderRunDetail(detail);
+    if (detail.status === "running" && !activeSSE) connectSSE(runId);
   } catch (e) {
-    console.warn("Fetch detail failed:", e);
+    console.warn("fetchRunDetail:", e);
   }
 }
 
-// ─── SSE Live Updates ─────────────────────────────────────────────────
+// ─── Render full detail from REST ────────────────────────────────────
+function renderRunDetail(d) {
+  $("detailTopic").textContent = d.topic || d.pr_title || `PR #${d.pr_number || "?"}`;
+  $("detailMeta").innerHTML = [
+    d.repo && `<span>${esc(d.repo)}</span>`,
+    d.pr_number && `<span>PR #${d.pr_number}</span>`,
+    d.pr_author && `<span>@${esc(d.pr_author)}</span>`,
+    d.pr_title && `<span title="${esc(d.pr_title)}">${esc(truncate(d.pr_title, 40))}</span>`,
+    `<span class="qe-mono">${d.run_id.slice(0, 8)}</span>`,
+    `<span>${relativeTime(d.created_at)}</span>`,
+  ]
+    .filter(Boolean)
+    .join("");
+
+  $("detailStatus").textContent = d.status;
+  $("detailStatus").className = `qe-badge qe-badge--status qe-badge--${d.status}`;
+
+  if (d.verdict) {
+    $("detailVerdict").hidden = false;
+    $("detailVerdict").textContent = d.verdict;
+    $("detailVerdict").className = `qe-badge qe-badge--verdict ${VERDICT_CLASS[d.verdict] || ""}`;
+  } else {
+    $("detailVerdict").hidden = true;
+  }
+
+  if (d.scores) renderScores(d.scores);
+  if (d.reasoning) {
+    $("verdictReasoning").textContent = d.reasoning;
+    $("verdictBadge").textContent = d.verdict || "—";
+    $("verdictBadge").className = `qe-verdict__badge ${VERDICT_CLASS[d.verdict] || ""}`;
+  }
+
+  renderGithubLinks(d.github_comment, d.github_issue);
+
+  if (d.steps?.length) {
+    applyStepsToStepper(d.steps);
+    $("agentTimeline").innerHTML = renderTimelineHtml(d.steps);
+  }
+
+  if (d.error) {
+    $("agentTimeline").insertAdjacentHTML(
+      "afterbegin",
+      `<div class="qe-timeline__error">Error: ${esc(d.error)}</div>`
+    );
+  }
+}
+
+// ─── Agent stepper ───────────────────────────────────────────────────
+function buildAgentStepper() {
+  const ol = $("agentStepper");
+  ol.innerHTML = AGENTS.map(
+    (a) => `
+    <li class="qe-stepper__item" data-agent="${a.id}" data-state="pending">
+      <span class="qe-stepper__icon" aria-hidden="true">○</span>
+      <span class="qe-stepper__label">${a.label}</span>
+      ${a.parallel ? '<span class="qe-stepper__tag">parallel</span>' : ""}
+    </li>`
+  ).join("");
+  resetLiveState();
+}
+
+function setStepperAgent(agentId, state) {
+  if (!AGENT_MAP[agentId]) return;
+  liveState.stepper[agentId] = state;
+  if (agentId === "pr_reviewer" || agentId === "security_scanner") {
+    if (state === "active") {
+      liveState.stepper.pr_reviewer = "active";
+      liveState.stepper.security_scanner = "active";
+    }
+  }
+  updateStepperUI();
+}
+
+function applyStepsToStepper(steps) {
+  const order = AGENTS.map((a) => a.id);
+  steps.forEach((s) => {
+    const st =
+      s.status === "completed" ? "done" : s.status === "failed" ? "failed" : "active";
+    setStepperAgent(s.agent, st);
+  });
+  order.forEach((id) => {
+    if (liveState.stepper[id] === "active") liveState.stepper[id] = "done";
+  });
+}
+
+function updateStepperUI() {
+  document.querySelectorAll(".qe-stepper__item").forEach((el) => {
+    const id = el.dataset.agent;
+    const state = liveState.stepper[id] || "pending";
+    el.dataset.state = state;
+    const icons = { pending: "○", active: "◉", done: "✓", failed: "✕", skipped: "—" };
+    el.querySelector(".qe-stepper__icon").textContent = icons[state] || "○";
+  });
+}
+
+// ─── SSE ─────────────────────────────────────────────────────────────
 function connectSSE(runId) {
   if (activeSSE) activeSSE.close();
   activeSSE = new EventSource(`/stream/${runId}`);
 
-  activeSSE.addEventListener("step", (e) => {
+  activeSSE.addEventListener("init", (e) => {
     const data = JSON.parse(e.data);
-    appendLiveStep(data);
-  });
-
-  activeSSE.addEventListener("status", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.status === "completed" || data.status === "failed") {
-      setTimeout(() => {
-        fetchRuns();
-        fetchRunDetail(runId);
-      }, 500);
+    if (data.steps?.length) {
+      $("agentTimeline").innerHTML = renderTimelineHtml(
+        data.steps.map((s) => ({
+          agent: s.agent,
+          status: s.status,
+          message: s.message,
+          metadata: s.metadata || {},
+        }))
+      );
     }
   });
 
-  activeSSE.addEventListener("complete", (e) => {
-    setTimeout(() => {
-      fetchRuns();
-      fetchRunDetail(runId);
-    }, 1000);
-    if (activeSSE) { activeSSE.close(); activeSSE = null; }
+  activeSSE.addEventListener("step", (e) => handleStepEvent(JSON.parse(e.data)));
+  activeSSE.addEventListener("plan", (e) => handlePlanEvent(JSON.parse(e.data)));
+  activeSSE.addEventListener("review", (e) => handleReviewEvent(JSON.parse(e.data)));
+  activeSSE.addEventListener("security", (e) => handleSecurityEvent(JSON.parse(e.data)));
+  activeSSE.addEventListener("tests", (e) => handleTestsEvent(JSON.parse(e.data)));
+  activeSSE.addEventListener("heal", (e) => handleHealEvent(JSON.parse(e.data)));
+  activeSSE.addEventListener("verdict", (e) => handleVerdictEvent(JSON.parse(e.data)));
+
+  activeSSE.addEventListener("complete", () => finishRun(runId));
+  activeSSE.addEventListener("status", (e) => {
+    const data = JSON.parse(e.data);
+    if (data.status === "completed" || data.status === "failed") finishRun(runId);
   });
 
   activeSSE.onerror = () => {
-    if (activeSSE) { activeSSE.close(); activeSSE = null; }
+    if (activeSSE) {
+      activeSSE.close();
+      activeSSE = null;
+    }
   };
 }
 
-let liveStepBuffer = [];
-function appendLiveStep(data) {
-  const timeline = document.getElementById("timeline");
-  if (!timeline) return;
-
-  const agent = data.agent || "system";
-  const cfg = AGENT_CONFIG[agent] || { icon: "⚙️", label: agent };
-  const stepEl = document.createElement("div");
-  stepEl.className = "timeline-step step-running";
-  stepEl.id = `live-step-${Date.now()}`;
-  stepEl.innerHTML = `
-    <div class="step-icon icon-${agent}">${cfg.icon}</div>
-    <div class="step-body">
-      <div class="step-agent agent-${agent}">${cfg.label}</div>
-      <div class="step-message">${escHtml(data.message || "")}</div>
-    </div>
-    <span class="step-spinner">⟳</span>
-  `;
-  timeline.appendChild(stepEl);
-  stepEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-}
-
-// ─── Render Detail ────────────────────────────────────────────────────
-function renderDetailSkeleton(run) {
-  const pane = document.getElementById("detailPane");
-  pane.innerHTML = `
-    <div class="run-detail">
-      <div class="run-detail-header">
-        <div>
-          <div class="run-detail-title">${escHtml(run.topic)}</div>
-          <div class="run-detail-meta">
-            <span class="run-event-badge event-${run.event_type}">${EVENT_LABELS[run.event_type] || run.event_type}</span>
-            <span class="meta-status ms-${run.status}">${run.status.toUpperCase()}</span>
-            ${run.repo ? `<span class="meta-chip">${escHtml(run.repo)}</span>` : ""}
-            <span class="meta-chip">${run.run_id.substring(0, 8)}</span>
-          </div>
-        </div>
-      </div>
-      <div class="section-title">Agent Timeline</div>
-      <div class="timeline" id="timeline">
-        <div style="color:var(--text-3);font-size:13px;padding:12px;">Loading steps...</div>
-      </div>
-    </div>
-  `;
-}
-
-function renderDetail(detail) {
-  if (activeRunId !== detail.run_id) return;
-
-  const pane = document.getElementById("detailPane");
-
-  const scoreHtml = detail.critic_score ? renderScores(detail.critic_score) : "";
-  const reportHtml = detail.has_report ? `
-    <div class="report-preview-card">
-      <div class="report-preview-header">
-        <div class="report-preview-title">📄 Intelligence Report</div>
-        <button class="btn btn-ghost btn-sm" onclick="openReport('${detail.run_id}')">
-          View Full Report →
-        </button>
-      </div>
-      <div class="report-preview-snippet" id="reportSnippet-${detail.run_id}">Loading preview...</div>
-    </div>
-  ` : "";
-
-  pane.innerHTML = `
-    <div class="run-detail">
-      <div class="run-detail-header">
-        <div style="flex:1">
-          <div class="run-detail-title">${escHtml(detail.topic)}</div>
-          <div class="run-detail-meta">
-            <span class="run-event-badge event-${detail.event_type}">${EVENT_LABELS[detail.event_type] || detail.event_type}</span>
-            <span class="meta-status ms-${detail.status}">${detail.status.toUpperCase()}</span>
-            ${detail.repo ? `<span class="meta-chip">${escHtml(detail.repo)}</span>` : ""}
-            <span class="meta-chip">${detail.run_id.substring(0, 8)}</span>
-            <span class="meta-chip">${relativeTime(detail.created_at)}</span>
-          </div>
-        </div>
-      </div>
-
-      ${scoreHtml}
-
-      ${detail.has_report ? `
-        <div class="report-preview-card">
-          <div class="report-preview-header">
-            <div class="report-preview-title">📄 Intelligence Report Generated</div>
-            <button class="btn btn-primary btn-sm" onclick="openReport('${detail.run_id}')">
-              View Full Report →
-            </button>
-          </div>
-        </div>
-      ` : ""}
-
-      ${detail.error ? `
-        <div style="padding:14px;border-radius:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:13px;margin-bottom:20px;">
-          ❌ Error: ${escHtml(detail.error)}
-        </div>
-      ` : ""}
-
-      <div class="section-title">Agent Timeline</div>
-      <div class="timeline" id="timeline">
-        ${renderTimeline(detail.steps)}
-      </div>
-    </div>
-  `;
-
-  // Reconnect SSE if still running
-  if (detail.status === "running" && !activeSSE) {
-    connectSSE(detail.run_id);
+function finishRun(runId) {
+  setTimeout(() => {
+    fetchRuns();
+    fetchRunDetail(runId);
+  }, 600);
+  if (activeSSE) {
+    activeSSE.close();
+    activeSSE = null;
   }
 }
 
-function renderScores(score) {
-  const scoreColor = (v) => v >= 7 ? "score-high" : v >= 5 ? "score-med" : "score-low";
-  return `
-    <div class="score-grid">
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.overall)}">${score.overall.toFixed(1)}</div>
-        <div class="score-label">Overall</div>
-      </div>
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.accuracy)}">${score.accuracy}/10</div>
-        <div class="score-label">Accuracy</div>
-      </div>
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.completeness)}">${score.completeness}/10</div>
-        <div class="score-label">Completeness</div>
-      </div>
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.actionability)}">${score.actionability}/10</div>
-        <div class="score-label">Actionability</div>
-      </div>
-    </div>
-  `;
+function handleStepEvent(data) {
+  const agent = data.agent || "system";
+  setStepperAgent(agent, "active");
+  appendTimelineLive(agent, data.message || "", "started");
 }
 
-function renderTimeline(steps) {
-  if (!steps || !steps.length) return `<div style="color:var(--text-3);font-size:13px;padding:12px;">No steps yet...</div>`;
-  return steps.map(s => {
-    const cfg = AGENT_CONFIG[s.agent] || { icon: "⚙️", label: s.agent };
-    const dur = s.completed_at
-      ? `${((new Date(s.completed_at) - new Date(s.started_at)) / 1000).toFixed(1)}s`
-      : "";
-    const isRunning = s.status === "started";
-    const metaParts = [];
-    if (dur) metaParts.push(dur);
-    if (s.metadata && Object.keys(s.metadata).length) {
-      const meta = s.metadata;
-      if (meta.searches) metaParts.push(`${meta.searches} searches`);
-      if (meta.files) metaParts.push(`${meta.files} files`);
-      if (meta.overall) metaParts.push(`score: ${meta.overall}`);
-      if (meta.chars) metaParts.push(`${(meta.chars/1000).toFixed(1)}k chars`);
-    }
+function handlePlanEvent(data) {
+  liveState.plan = data;
+  setStepperAgent("orchestrator", "done");
+  $("planContent").innerHTML = `
+    <dl class="qe-dl">
+      <dt>Change</dt><dd>${esc(data.change_type)}</dd>
+      <dt>Risk</dt><dd>${esc(data.risk_level)}</dd>
+      <dt>Summary</dt><dd>${esc(data.summary)}</dd>
+      <dt>Files to test</dt><dd>${(data.files || []).map(esc).join(", ") || "—"}</dd>
+    </dl>`;
+}
+
+function handleReviewEvent(data) {
+  liveState.review = data;
+  setStepperAgent("pr_reviewer", "done");
+  $("reviewContent").innerHTML = `
+    <p><strong>Score:</strong> ${data.score}/10 · <strong>${esc(data.recommendation)}</strong></p>
+    <p class="qe-muted">${esc(data.summary || "")}</p>
+    <p class="qe-muted">${data.issues ?? 0} issue(s) flagged</p>`;
+}
+
+function handleSecurityEvent(data) {
+  liveState.security = data;
+  setStepperAgent("security_scanner", "done");
+  $("securityContent").innerHTML = `
+    <p><strong>Score:</strong> ${data.score}/10 · <strong>${esc(data.verdict || data.recommendation)}</strong></p>
+    <p class="qe-muted">Critical: ${data.critical ?? 0} · High: ${data.high ?? 0}</p>
+    <p class="qe-muted">${esc(data.summary || "")}</p>`;
+}
+
+function handleTestsEvent(data) {
+  liveState.tests = data;
+  setStepperAgent("test_generator", "done");
+  const ok = data.success ? "qe-text--ok" : "qe-text--err";
+  $("testsContent").innerHTML = `
+    <p class="${ok}">
+      <strong>${data.passed ?? 0}</strong> passed ·
+      <strong>${data.failed ?? 0}</strong> failed ·
+      <strong>${data.errors ?? 0}</strong> errors
+    </p>
+    ${data.stdout ? `<pre class="qe-pre">${esc(truncate(data.stdout, 800))}</pre>` : ""}`;
+  if (!data.success && (data.failed > 0 || data.errors > 0)) {
+    setStepperAgent("self_healer", "pending");
+    liveState.stepper.self_healer = "pending";
+    $("panelHeal").hidden = false;
+  }
+}
+
+function handleHealEvent(data) {
+  $("panelHeal").hidden = false;
+  setStepperAgent("self_healer", "active");
+  liveState.heals.push(data);
+  const li = document.createElement("li");
+  li.className = "qe-heal-list__item";
+  li.innerHTML = `
+    <span>Attempt ${data.attempt}</span>
+    <span>${data.success ? "✓ fixed" : "✗ still failing"}</span>
+    <span>${data.passed ?? 0}p / ${data.failed ?? 0}f</span>
+    <p class="qe-muted">${esc(data.fix_description || "")}</p>`;
+  $("healList").appendChild(li);
+  if (data.success) setStepperAgent("self_healer", "done");
+}
+
+function handleVerdictEvent(data) {
+  liveState.verdict = data;
+  setStepperAgent("decision_agent", "done");
+  setStepperAgent("system", "active");
+  if (data.scores) renderScores(data.scores);
+  $("verdictBadge").textContent = data.verdict;
+  $("verdictBadge").className = `qe-verdict__badge ${VERDICT_CLASS[data.verdict] || ""}`;
+  $("verdictReasoning").textContent = data.reasoning || "";
+  $("detailVerdict").hidden = false;
+  $("detailVerdict").textContent = data.verdict;
+  $("detailVerdict").className = `qe-badge qe-badge--verdict ${VERDICT_CLASS[data.verdict] || ""}`;
+}
+
+function renderScores(scores) {
+  $("scoreGrid").innerHTML = SCORE_KEYS.map(({ key, label }) => {
+    const v = scores[key];
+    if (v == null) return "";
+    const num = typeof v === "number" ? v : parseFloat(v);
     return `
-      <div class="timeline-step step-${s.status}">
-        <div class="step-icon icon-${s.agent}">${cfg.icon}</div>
-        <div class="step-body">
-          <div class="step-agent agent-${s.agent}">${cfg.label}</div>
-          <div class="step-message">${escHtml(s.message || "")}</div>
-          ${metaParts.length ? `<div class="step-meta">${metaParts.join(" · ")}</div>` : ""}
-        </div>
-        ${isRunning ? `<span class="step-spinner">⟳</span>` : statusIcon(s.status)}
-      </div>
-    `;
+      <div class="qe-score-card" data-score-key="${key}">
+        <span class="qe-score-card__value">${Number.isInteger(num) ? num : num.toFixed(1)}</span>
+        <span class="qe-score-card__label">${label}</span>
+      </div>`;
   }).join("");
 }
 
-function statusIcon(status) {
-  const icons = { completed: "✅", failed: "❌", skipped: "⏭️", started: "⟳" };
-  return `<span style="font-size:14px">${icons[status] || ""}</span>`;
+function renderGithubLinks(commentUrl, issueUrl) {
+  const items = [];
+  if (commentUrl) items.push(`<li><a href="${commentUrl}" target="_blank" rel="noopener">PR comment</a></li>`);
+  if (issueUrl) items.push(`<li><a href="${issueUrl}" target="_blank" rel="noopener">Bug issue</a></li>`);
+  $("githubLinks").innerHTML = items.length
+    ? items.join("")
+    : `<li><span class="qe-muted">No links yet.</span></li>`;
 }
 
-// ─── Report Modal ─────────────────────────────────────────────────────
-let currentReportMd = "";
-
-async function openReport(runId) {
-  document.getElementById("reportModal").classList.add("open");
-  document.getElementById("reportModalBody").innerHTML = `<div class="report-loading">⏳ Loading report...</div>`;
-
-  try {
-    const res = await fetch(`/report/${runId}`);
-    if (!res.ok) throw new Error("Report not found");
-    const data = await res.json();
-    currentReportMd = data.report_markdown;
-    document.getElementById("reportModalTitle").textContent = `📄 ${data.topic}`;
-    document.getElementById("reportModalBody").innerHTML = `<div class="report-md">${simpleMarkdown(data.report_markdown)}</div>`;
-  } catch (e) {
-    document.getElementById("reportModalBody").innerHTML = `<div class="report-loading" style="color:var(--red)">Failed to load report: ${e.message}</div>`;
-  }
+// ─── Timeline ────────────────────────────────────────────────────────
+function renderTimelineHtml(steps) {
+  if (!steps?.length) return `<p class="qe-muted">No steps yet.</p>`;
+  return steps
+    .map((s) => {
+      const label = AGENT_MAP[s.agent]?.label || s.agent;
+      return `
+        <article class="qe-timeline__item qe-timeline__item--${s.status}">
+          <header class="qe-timeline__head">
+            <span class="qe-timeline__agent">${esc(label)}</span>
+            <span class="qe-timeline__status">${s.status}</span>
+          </header>
+          <p class="qe-timeline__msg">${esc(s.message || "")}</p>
+        </article>`;
+    })
+    .join("");
 }
 
-function closeReportModal() {
-  document.getElementById("reportModal").classList.remove("open");
+function appendTimelineLive(agent, message, status) {
+  const tl = $("agentTimeline");
+  if (tl.querySelector(".qe-muted")) tl.innerHTML = "";
+  const label = AGENT_MAP[agent]?.label || agent;
+  const el = document.createElement("article");
+  el.className = `qe-timeline__item qe-timeline__item--${status} qe-timeline__item--live`;
+  el.innerHTML = `
+    <header class="qe-timeline__head">
+      <span class="qe-timeline__agent">${esc(label)}</span>
+      <span class="qe-timeline__status">${status}</span>
+    </header>
+    <p class="qe-timeline__msg">${esc(message)}</p>`;
+  tl.appendChild(el);
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-function closeReportModalIfOutside(e) {
-  if (e.target === document.getElementById("reportModal")) closeReportModal();
-}
-
-async function copyReport() {
-  if (!currentReportMd) return;
-  try {
-    await navigator.clipboard.writeText(currentReportMd);
-    const btn = document.querySelector(".report-header-actions .btn-ghost");
-    if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => btn.textContent = "📋 Copy", 2000); }
-  } catch (e) {}
-}
-
-// ─── Trigger Modal ────────────────────────────────────────────────────
+// ─── Trigger modal ───────────────────────────────────────────────────
 function openTriggerModal() {
-  document.getElementById("triggerModal").classList.add("open");
-  setTimeout(() => document.getElementById("topicInput").focus(), 100);
+  const modal = $("triggerModal");
+  if (modal.showModal) modal.showModal();
+  else modal.setAttribute("open", "");
+  $("triggerError").hidden = true;
 }
 
 function closeTriggerModal() {
-  document.getElementById("triggerModal").classList.remove("open");
-}
-
-function closeTriggerModalIfOutside(e) {
-  if (e.target === document.getElementById("triggerModal")) closeTriggerModal();
-}
-
-function setTopic(topic) {
-  document.getElementById("topicInput").value = topic;
-  document.getElementById("topicInput").focus();
+  const modal = $("triggerModal");
+  if (modal.close) modal.close();
+  else modal.removeAttribute("open");
 }
 
 async function submitTrigger() {
-  const topic = document.getElementById("topicInput").value.trim();
-  if (!topic) {
-    document.getElementById("topicInput").style.borderColor = "var(--red)";
-    setTimeout(() => document.getElementById("topicInput").style.borderColor = "", 1500);
+  const repo = $("inputRepo").value.trim();
+  const prNumber = parseInt($("inputPrNumber").value, 10);
+  const topic = $("inputTopic").value.trim();
+  const errEl = $("triggerError");
+  errEl.hidden = true;
+
+  if (!repo || !prNumber) {
+    errEl.textContent = "Repository and PR number are required.";
+    errEl.hidden = false;
     return;
   }
 
-  const btn = document.getElementById("submitTrigger");
-  const label = document.getElementById("submitLabel");
-  btn.disabled = true;
-  label.textContent = "⏳ Launching...";
-
+  $("btnSubmitTrigger").disabled = true;
   try {
-    const body = {
-      topic,
-      repo: document.getElementById("repoInput").value.trim() || null,
-      context: document.getElementById("contextInput").value.trim() || null,
-    };
     const res = await fetch("/trigger", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ repo, pr_number: prNumber, topic: topic || undefined }),
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-
     closeTriggerModal();
-    document.getElementById("topicInput").value = "";
-    document.getElementById("repoInput").value = "";
-    document.getElementById("contextInput").value = "";
-
-    // Refresh and select new run
+    $("triggerForm").reset();
     await fetchRuns();
-    setTimeout(() => selectRun(data.run_id), 300);
+    selectRun(data.run_id);
   } catch (e) {
-    label.textContent = `❌ Error: ${e.message}`;
-    setTimeout(() => label.textContent = "▶ Launch Pipeline", 3000);
+    errEl.textContent = e.message || "Trigger failed";
+    errEl.hidden = false;
   } finally {
-    btn.disabled = false;
-    label.textContent = "▶ Launch Pipeline";
+    $("btnSubmitTrigger").disabled = false;
   }
 }
 
-// Enter key submit
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    closeTriggerModal();
-    closeReportModal();
-  }
-  if (e.key === "Enter" && document.getElementById("triggerModal").classList.contains("open")) {
-    submitTrigger();
-  }
-});
-
-// ─── Utilities ────────────────────────────────────────────────────────
-function escHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str || "";
-  return div.innerHTML;
+// ─── Utils ───────────────────────────────────────────────────────────
+function esc(str) {
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : String(str);
+  return d.innerHTML;
 }
 
-function relativeTime(isoStr) {
-  const diff = (Date.now() - new Date(isoStr)) / 1000;
+function truncate(str, n) {
+  const s = String(str || "");
+  return s.length <= n ? s : s.slice(0, n) + "…";
+}
+
+function relativeTime(iso) {
+  const diff = (Date.now() - new Date(iso)) / 1000;
   if (diff < 60) return `${Math.floor(diff)}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// Minimal markdown renderer (no external lib needed)
-function simpleMarkdown(md) {
-  if (!md) return "";
-  return md
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    // Headers
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    // Bold/italic
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    // Code
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // Table rows (basic)
-    .replace(/^\|(.+)\|$/gm, (line) => {
-      const cells = line.split("|").filter(Boolean).map(c => c.trim());
-      const isHeader = cells.some(c => /^[-:]+$/.test(c));
-      if (isHeader) return "";
-      const tag = line.includes("---") ? "th" : "td";
-      return "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
-    })
-    // HR
-    .replace(/^---+$/gm, "<hr>")
-    // Bullet lists
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
-    // Numbered lists
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
-    // Paragraphs
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/^(?!<[huplti])(.+)$/gm, "$1")
-    .replace(/^(.+)$/, "<p>$1</p>");
-}
+// Expose for inline onclick on run cards
+window.selectRun = selectRun;
