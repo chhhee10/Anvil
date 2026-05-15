@@ -1,26 +1,51 @@
-# NewsRoom AI - Git Ignore
+# QualityEngine AI — Git Ignore
 
-# Environment Variables (CRITICAL)
+# Secrets (CRITICAL)
 .env
+.env.local
+.env.*.local
 
-# Local Database
+# Local databases
+*.db
+*.db-journal
+qualityengine.db
+qualityengine.db-journal
 newsroom.db
 newsroom.db-journal
 
-# Generated Content
-reports/
+# Runtime logs
+*.log
+server.log
 logs/
 
-# Python artifacts
+# Generated / local artifacts
+reports/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
 .venv/
-env/
 venv/
+env/
 ENV/
+.mypy_cache/
+.ruff_cache/
 
-# System files
+# IDE / editor
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# OS
 .DS_Store
 Thumbs.db
+
+# Local dev / scratch (not part of the product)
+trigger_test.py
+Building Autonomous Multi-Agent Pipeline.md
