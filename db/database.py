@@ -1,6 +1,6 @@
 """
-SQLite-backed state management for pipeline runs and agent steps.
-Uses aiosqlite for fully async access.
+SQLite-backed state management for QualityEngine AI pipeline runs and agent steps.
+Uses aiosqlite for fully async access. Crash-safe: all state written before each step.
 """
 from __future__ import annotations
 import json
@@ -8,14 +8,15 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 import aiosqlite
+
 from models.schemas import (
-    PipelineRun, AgentStep, FinalReport, RunStatus,
-    AgentName, StepStatus, EventType, CriticScore
+    PipelineRun, AgentStep, PRDecision, RunStatus,
+    AgentName, StepStatus, EventType, QualityPlan,
+    ReviewReport, SecurityReport, TestResult, HealAttempt
 )
 
-logger = logging.getLogger("newsroom.db")
-
-DB_PATH = "newsroom.db"
+logger = logging.getLogger("qualityengine.db")
+DB_PATH = "qualityengine.db"
 
 
 async def init_db():
@@ -23,29 +24,36 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_runs (
-                run_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL DEFAULT 'pending',
-                event_type TEXT NOT NULL,
-                topic TEXT NOT NULL,
-                repo TEXT,
-                trigger_payload TEXT DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
+                run_id       TEXT PRIMARY KEY,
+                status       TEXT NOT NULL DEFAULT 'pending',
+                event_type   TEXT NOT NULL DEFAULT 'pull_request',
+                topic        TEXT NOT NULL DEFAULT '',
+                repo         TEXT,
+                pr_number    INTEGER,
+                pr_title     TEXT,
+                pr_author    TEXT,
+                branch       TEXT,
+                commit_sha   TEXT,
+                verdict      TEXT,
+                created_at   TEXT NOT NULL,
+                updated_at   TEXT NOT NULL,
                 completed_at TEXT,
-                error TEXT,
-                final_report TEXT
+                error        TEXT,
+                decision     TEXT,
+                github_comment_url TEXT,
+                github_issue_url   TEXT
             )
         """)
         await db.execute("""
             CREATE TABLE IF NOT EXISTS agent_steps (
-                step_id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                agent TEXT NOT NULL,
-                status TEXT NOT NULL,
-                message TEXT DEFAULT '',
-                started_at TEXT NOT NULL,
+                step_id      TEXT PRIMARY KEY,
+                run_id       TEXT NOT NULL,
+                agent        TEXT NOT NULL,
+                status       TEXT NOT NULL,
+                message      TEXT DEFAULT '',
+                started_at   TEXT NOT NULL,
                 completed_at TEXT,
-                metadata TEXT DEFAULT '{}',
+                metadata     TEXT DEFAULT '{}',
                 FOREIGN KEY (run_id) REFERENCES pipeline_runs(run_id)
             )
         """)
@@ -59,15 +67,20 @@ async def create_run(run: PipelineRun) -> PipelineRun:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             INSERT INTO pipeline_runs
-              (run_id, status, event_type, topic, repo, trigger_payload, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (run_id, status, event_type, topic, repo, pr_number, pr_title,
+               pr_author, branch, commit_sha, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             run.run_id,
             run.status.value,
             run.event_type.value,
             run.topic,
             run.repo,
-            json.dumps(run.trigger_payload),
+            run.pr_number,
+            run.pr_title,
+            run.pr_author,
+            run.branch,
+            run.commit_sha,
             run.created_at.isoformat(),
             run.updated_at.isoformat(),
         ))
@@ -88,14 +101,23 @@ async def update_run_status(run_id: str, status: RunStatus, error: str = None):
         await db.commit()
 
 
-async def save_final_report(run_id: str, report: FinalReport):
-    """Save the final report JSON to the run row."""
+async def save_decision(run_id: str, decision: PRDecision,
+                        comment_url: str = None, issue_url: str = None):
+    """Save the final PR decision to the run row."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
             UPDATE pipeline_runs
-            SET final_report = ?, updated_at = ?
+            SET decision = ?, verdict = ?, github_comment_url = ?,
+                github_issue_url = ?, updated_at = ?
             WHERE run_id = ?
-        """, (report.model_dump_json(), datetime.utcnow().isoformat(), run_id))
+        """, (
+            decision.model_dump_json(),
+            decision.verdict.value,
+            comment_url,
+            issue_url,
+            datetime.utcnow().isoformat(),
+            run_id,
+        ))
         await db.commit()
 
 
@@ -119,7 +141,8 @@ async def add_step(step: AgentStep) -> AgentStep:
     return step
 
 
-async def complete_step(step_id: str, status: StepStatus, message: str = "", metadata: dict = {}):
+async def complete_step(step_id: str, status: StepStatus,
+                        message: str = "", metadata: dict = {}):
     """Mark an agent step as completed or failed."""
     now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
@@ -135,7 +158,9 @@ async def get_run(run_id: str) -> Optional[PipelineRun]:
     """Load a full pipeline run with its steps."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM pipeline_runs WHERE run_id = ?", (run_id,)) as cur:
+        async with db.execute(
+            "SELECT * FROM pipeline_runs WHERE run_id = ?", (run_id,)
+        ) as cur:
             row = await cur.fetchone()
         if not row:
             return None
@@ -156,7 +181,7 @@ async def get_all_runs(limit: int = 50) -> List[PipelineRun]:
 
 
 async def get_pending_runs() -> List[PipelineRun]:
-    """Load runs that were interrupted (pending/running) for resume on restart."""
+    """Load runs that were interrupted for cleanup on restart."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -169,24 +194,31 @@ async def get_pending_runs() -> List[PipelineRun]:
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _row_to_run(row) -> PipelineRun:
-    report = None
-    if row["final_report"]:
+    decision = None
+    if row["decision"]:
         try:
-            report = FinalReport.model_validate_json(row["final_report"])
+            decision = PRDecision.model_validate_json(row["decision"])
         except Exception:
             pass
+
     return PipelineRun(
         run_id=row["run_id"],
         status=RunStatus(row["status"]),
-        event_type=EventType(row["event_type"]),
-        topic=row["topic"],
-        repo=row["repo"],
-        trigger_payload=json.loads(row["trigger_payload"] or "{}"),
+        event_type=EventType(row["event_type"]) if row["event_type"] else EventType.PULL_REQUEST,
+        topic=row["topic"] or "",
+        repo=row["repo"] or "",
+        pr_number=row["pr_number"],
+        pr_title=row["pr_title"],
+        pr_author=row["pr_author"],
+        branch=row["branch"],
+        commit_sha=row["commit_sha"],
+        decision=decision,
+        github_comment_url=row["github_comment_url"],
+        github_issue_url=row["github_issue_url"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
         error=row["error"],
-        final_report=report,
     )
 
 

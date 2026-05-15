@@ -1,19 +1,32 @@
 """
-GitHub API tools — fetches commit diffs, PR details, file changes.
-Works with public repos without auth; use GITHUB_TOKEN for higher rate limits.
+GitHub API Tools — Autonomous PR Actions for QualityEngine AI
+Wraps PyGitHub for all write operations:
+- Post review comments (approve/request_changes)
+- Merge PR
+- Close/reject PR
+- Create bug report Issue
+- Set commit status (pending/success/failure)
+- Read file content for test generation
 """
 from __future__ import annotations
-import os
 import logging
-import httpx
-import omium
+import os
 from typing import Optional, List, Dict, Any
-from models.schemas import CodeChange
 
-logger = logging.getLogger("newsroom.tools.github")
+import httpx
+from github import Github, GithubException
 
-GITHUB_API = "https://api.github.com"
-TIMEOUT = 20.0
+logger = logging.getLogger("qualityengine.github")
+
+GITHUB_API   = "https://api.github.com"
+TIMEOUT      = 20.0
+
+
+# ─── Shared clients ───────────────────────────────────────────────────────────
+
+def _get_github() -> Github:
+    token = os.environ.get("GITHUB_TOKEN", "")
+    return Github(token) if token else Github()
 
 
 def _headers() -> Dict[str, str]:
@@ -24,89 +37,231 @@ def _headers() -> Dict[str, str]:
     return h
 
 
-@omium.trace("github_commit_diff")
-def get_commit_diff(repo: str, sha: str) -> List[CodeChange]:
+# ─── Read Operations ──────────────────────────────────────────────────────────
+
+def get_pr_changed_files(repo: str, pr_number: int) -> List[str]:
+    """Return list of .py file paths changed in the PR."""
+    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/files"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.get(url, headers=_headers(), params={"per_page": 50})
+            resp.raise_for_status()
+            files = resp.json()
+        py_files = [f["filename"] for f in files if f["filename"].endswith(".py")]
+        logger.info("PR #%d changed Python files: %s", pr_number, py_files)
+        return py_files
+    except Exception as e:
+        logger.error("Failed to list PR files: %s", e)
+        return []
+
+
+def fetch_pr_source_files(repo: str, paths: List[str], ref: str = "main") -> Dict[str, str]:
     """
-    Fetch files changed in a commit.
-    repo: 'owner/name'
-    sha: full or short commit SHA
+    Fetch raw content of multiple Python files from the repo at a given ref.
+    Returns {relative_path: file_content} for files that exist.
+    Used to populate the test sandbox so imports work.
     """
-    url = f"{GITHUB_API}/repos/{repo}/commits/{sha}"
+    result: Dict[str, str] = {}
+    for path in paths:
+        content = get_file_content(repo, path, ref)
+        if content:
+            result[path] = content
+            logger.info("Fetched source file: %s (%d chars)", path, len(content))
+    return result
+
+
+
+def get_pr_diff(repo: str, pr_number: int) -> str:
+    """Fetch the full unified diff for a PR as a string."""
+    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.get(url, headers={**_headers(), "Accept": "application/vnd.github.diff"})
+            resp.raise_for_status()
+            diff = resp.text
+        logger.info("Fetched diff for PR #%d (%d chars)", pr_number, len(diff))
+        return diff[:20000]  # cap at 20k chars for token budget
+    except Exception as e:
+        logger.error("Failed to fetch PR diff for #%d: %s", pr_number, e)
+        return ""
+
+
+def get_pr_changed_files(repo: str, pr_number: int) -> List[str]:
+    """Return paths of files changed in a PR (Python files only)."""
+    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/files"
+    paths: List[str] = []
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
             resp = client.get(url, headers=_headers())
             resp.raise_for_status()
-            data = resp.json()
-        files = data.get("files", [])
-        changes = []
-        for f in files[:20]:  # cap at 20 files
-            patch = f.get("patch", "")
-            if patch and len(patch) > 2000:
-                patch = patch[:2000] + "\n... [truncated]"
-            changes.append(CodeChange(
-                filename=f.get("filename", ""),
-                status=f.get("status", "modified"),
-                additions=f.get("additions", 0),
-                deletions=f.get("deletions", 0),
-                patch=patch,
-            ))
-        logger.info("Fetched %d file changes from commit %s", len(changes), sha[:7])
-        return changes
+            for item in resp.json():
+                filename = item.get("filename", "")
+                if filename.endswith(".py") and item.get("status") != "removed":
+                    paths.append(filename)
+        logger.info("PR #%d changed Python files: %s", pr_number, paths)
     except Exception as e:
-        logger.error("GitHub commit diff failed for %s@%s: %s", repo, sha, e)
-        return []
+        logger.error("Failed to list PR #%d files: %s", pr_number, e)
+    return paths
 
 
-@omium.trace("github_pr_details")
-def get_pr_details(repo: str, pr_number: int) -> Optional[Dict[str, Any]]:
-    """Fetch pull request details."""
+def fetch_pr_source_files(
+    repo: str, paths: List[str], ref: str
+) -> Dict[str, str]:
+    """Fetch file contents from the PR head branch for sandbox test execution."""
+    sources: Dict[str, str] = {}
+    for path in paths:
+        content = get_file_content(repo, path, ref=ref)
+        if content:
+            sources[path] = content
+    return sources
+
+
+def get_file_content(repo: str, path: str, ref: str = "main") -> str:
+    """Fetch raw content of a file from the repo at a given ref."""
+    url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.get(url, headers=_headers(), params={"ref": ref})
+            resp.raise_for_status()
+            import base64
+            content = base64.b64decode(resp.json()["content"]).decode("utf-8")
+        return content[:8000]
+    except Exception as e:
+        logger.error("Failed to fetch file %s@%s: %s", path, ref, e)
+        return ""
+
+
+def get_pr_metadata(repo: str, pr_number: int) -> Dict[str, Any]:
+    """Fetch PR title, author, branch, commit SHA."""
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
             resp = client.get(url, headers=_headers())
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+        return {
+            "title":      data.get("title", ""),
+            "author":     data.get("user", {}).get("login", ""),
+            "branch":     data.get("head", {}).get("ref", ""),
+            "commit_sha": data.get("head", {}).get("sha", ""),
+            "base":       data.get("base", {}).get("ref", "main"),
+            "state":      data.get("state", "open"),
+        }
     except Exception as e:
-        logger.error("GitHub PR fetch failed for %s#%d: %s", repo, pr_number, e)
+        logger.error("Failed to fetch PR #%d metadata: %s", pr_number, e)
+        return {}
+
+
+# ─── Write Operations (new for QualityEngine) ─────────────────────────────────
+
+def set_commit_status(repo: str, sha: str, state: str, description: str,
+                      context: str = "QualityEngine AI") -> bool:
+    """
+    Set commit status: state = 'pending' | 'success' | 'failure' | 'error'
+    Shows up as the little ✅/❌ check on the PR.
+    """
+    url = f"{GITHUB_API}/repos/{repo}/statuses/{sha}"
+    payload = {
+        "state":       state,
+        "description": description[:139],  # GitHub limit
+        "context":     context,
+    }
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.post(url, headers=_headers(), json=payload)
+            resp.raise_for_status()
+        logger.info("Set commit status: %s → %s", sha[:7], state)
+        return True
+    except Exception as e:
+        logger.error("Failed to set commit status: %s", e)
+        return False
+
+
+def post_pr_comment(repo: str, pr_number: int, body: str) -> Optional[str]:
+    """Post a comment on the PR. Returns the comment URL."""
+    url = f"{GITHUB_API}/repos/{repo}/issues/{pr_number}/comments"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.post(url, headers=_headers(), json={"body": body})
+            resp.raise_for_status()
+            comment_url = resp.json().get("html_url", "")
+        logger.info("Posted PR comment on #%d: %s", pr_number, comment_url)
+        return comment_url
+    except Exception as e:
+        logger.error("Failed to post PR comment: %s", e)
         return None
 
 
-@omium.trace("github_pr_files")
-def get_pr_files(repo: str, pr_number: int) -> List[CodeChange]:
-    """Fetch files changed in a pull request."""
-    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/files"
+def post_pr_review(repo: str, pr_number: int, commit_sha: str,
+                   body: str, event: str = "COMMENT") -> Optional[str]:
+    """
+    Post a formal PR review with APPROVE, REQUEST_CHANGES, or COMMENT event.
+    event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'
+    """
+    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/reviews"
+    payload = {"commit_id": commit_sha, "body": body, "event": event}
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
-            resp = client.get(url, headers=_headers())
+            resp = client.post(url, headers=_headers(), json=payload)
             resp.raise_for_status()
-            files = resp.json()
-        changes = []
-        for f in files[:20]:
-            patch = f.get("patch", "")
-            if patch and len(patch) > 2000:
-                patch = patch[:2000] + "\n... [truncated]"
-            changes.append(CodeChange(
-                filename=f.get("filename", ""),
-                status=f.get("status", "modified"),
-                additions=f.get("additions", 0),
-                deletions=f.get("deletions", 0),
-                patch=patch,
-            ))
-        logger.info("Fetched %d file changes from PR #%d", len(changes), pr_number)
-        return changes
+            review_url = resp.json().get("html_url", "")
+        logger.info("Posted PR review (%s) on #%d", event, pr_number)
+        return review_url
     except Exception as e:
-        logger.error("GitHub PR files failed for %s#%d: %s", repo, pr_number, e)
-        return []
+        logger.error("Failed to post PR review: %s", e)
+        return None
 
 
-def get_repo_info(repo: str) -> Optional[Dict[str, Any]]:
-    """Fetch basic repository metadata."""
-    url = f"{GITHUB_API}/repos/{repo}"
+def merge_pr(repo: str, pr_number: int, commit_title: str,
+             commit_message: str = "") -> bool:
+    """Merge the PR using squash merge."""
+    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/merge"
+    payload = {
+        "commit_title":   commit_title[:72],
+        "commit_message": commit_message,
+        "merge_method":   "squash",
+    }
     try:
         with httpx.Client(timeout=TIMEOUT) as client:
-            resp = client.get(url, headers=_headers())
+            resp = client.put(url, headers=_headers(), json=payload)
             resp.raise_for_status()
-            return resp.json()
+        logger.info("✅ Merged PR #%d in %s", pr_number, repo)
+        return True
     except Exception as e:
-        logger.error("GitHub repo info failed for %s: %s", repo, e)
+        logger.error("Failed to merge PR #%d: %s", pr_number, e)
+        return False
+
+
+def close_pr(repo: str, pr_number: int) -> bool:
+    """Close (reject) the PR without merging."""
+    url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.patch(url, headers=_headers(), json={"state": "closed"})
+            resp.raise_for_status()
+        logger.info("❌ Closed PR #%d in %s", pr_number, repo)
+        return True
+    except Exception as e:
+        logger.error("Failed to close PR #%d: %s", pr_number, e)
+        return False
+
+
+def create_bug_issue(repo: str, title: str, body: str,
+                     labels: List[str] = None) -> Optional[str]:
+    """Create a GitHub Issue (bug report). Returns the issue URL."""
+    url = f"{GITHUB_API}/repos/{repo}/issues"
+    payload = {
+        "title":  title,
+        "body":   body,
+        "labels": labels or ["bug", "auto-generated", "qualityengine"],
+    }
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.post(url, headers=_headers(), json=payload)
+            resp.raise_for_status()
+            issue_url = resp.json().get("html_url", "")
+        logger.info("🐛 Created bug issue: %s", issue_url)
+        return issue_url
+    except Exception as e:
+        logger.error("Failed to create bug issue: %s", e)
         return None
