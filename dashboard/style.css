@@ -267,6 +267,18 @@ body {
   animation-delay: 1.5s
 }
 
+.flip-card:nth-child(5) {
+  animation-delay: 0.3s
+}
+
+.flip-card:nth-child(6) {
+  animation-delay: 0.8s
+}
+
+.flip-card:nth-child(7) {
+  animation-delay: 1.3s
+}
+
 .flip-card:hover {
   animation-play-state: paused
 }
@@ -306,7 +318,7 @@ body {
 }
 
 /* Card front variants */
-.fc-cream {
+.fc-brown {
   background: #3a3028;
   color: #fff
 }
@@ -323,6 +335,21 @@ body {
 
 .fc-teal {
   background: var(--card-teal);
+  color: #fff
+}
+
+.fc-amber {
+  background: #b8862a;
+  color: #fff
+}
+
+.fc-slate {
+  background: #8c9ca8;
+  color: #fff
+}
+
+.fc-plum {
+  background: #6b4c7a;
   color: #fff
 }
 
