@@ -1,7 +1,6 @@
 """
-NewsRoom AI — FastAPI Server
-Handles webhook ingestion, manual triggers, pipeline orchestration,
-SSE streaming for live dashboard updates, and report delivery.
+QualityEngine AI — FastAPI Server
+Handles GitHub webhook ingestion, manual triggers, SSE streaming, and dashboard serving.
 """
 from __future__ import annotations
 import asyncio
@@ -14,49 +13,44 @@ import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncIterator, Dict
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import omium
-from omium import OmiumConfig
+omium.init(project="QualityEngine AI")
 
-# Initialize Omium Observability
-# omium.init(project="NewsRoom AI")
-
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
-from agents import code_analyst, critic, orchestrator, researcher, writer
+from agents.pipeline import run_pipeline
 from db import database as db_ops
 from models.schemas import (
-    AgentName, AgentStep, EventType, FinalReport, ManualTriggerRequest,
-    PipelineRun, RunStatus, StatusResponse, StepStatus, TriggerResponse
+    EventType, ManualTriggerRequest, PipelineRun,
+    RunStatus, TriggerResponse
 )
-from tools import file_writer
+from tools.github_api import get_pr_diff, get_pr_metadata
 
-# ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("logs/newsroom.log"),
+        logging.FileHandler("logs/qualityengine.log"),
     ],
 )
-logger = logging.getLogger("newsroom.main")
+logger = logging.getLogger("qualityengine.main")
 
 # ─── SSE Event Bus ────────────────────────────────────────────────────────────
-# Maps run_id → list of pending SSE event dicts
 _sse_queues: Dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
 
 
 def emit_sse(run_id: str, event: str, data: dict):
-    """Push an event into the SSE queue for a given run."""
+    """Push SSE event to the live dashboard queue for a run."""
     try:
         _sse_queues[run_id].put_nowait({"event": event, "data": data})
     except asyncio.QueueFull:
@@ -69,9 +63,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     os.makedirs("logs", exist_ok=True)
     os.makedirs("reports", exist_ok=True)
     await db_ops.init_db()
-    logger.info("NewsRoom AI started ✅")
+    logger.info("QualityEngine AI started ✅")
 
-    # Resume any runs that were interrupted
+    # Mark any interrupted runs as failed
     pending = await db_ops.get_pending_runs()
     if pending:
         logger.warning("Found %d interrupted runs — marking as failed", len(pending))
@@ -79,179 +73,182 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await db_ops.update_run_status(run.run_id, RunStatus.FAILED, "Server restarted")
 
     yield
-    logger.info("NewsRoom AI shutting down")
+    logger.info("QualityEngine AI shutting down")
 
 
 app = FastAPI(
-    title="NewsRoom AI",
-    description="Multi-agent autonomous tech intelligence pipeline",
-    version="1.0.0",
+    title="QualityEngine AI",
+    description="Autonomous PR Quality Engineering Pipeline",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"],
+                   allow_methods=["*"], allow_headers=["*"])
 
-# Serve dashboard
 app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 
-# ─── Pipeline Runner ──────────────────────────────────────────────────────────
-
-async def run_pipeline(run: PipelineRun):
-    """The full multi-agent pipeline. Runs in a background task."""
-    logger.info("Pipeline starting: %s [%s]", run.run_id, run.topic)
-    await db_ops.update_run_status(run.run_id, RunStatus.RUNNING)
-    emit_sse(run.run_id, "status", {"status": "running", "run_id": run.run_id})
-
-    async def deliver(run: PipelineRun, report_text: str, score, revision_count: int):
-        """Save report to disk and DB, update run status."""
-        path = file_writer.write_report(run.run_id, run.topic, report_text)
-        final = FinalReport(
-            run_id=run.run_id,
-            topic=run.topic,
-            event_type=run.event_type,
-            report_markdown=report_text,
-            critic_score=score,
-            revision_count=revision_count,
-            report_path=path,
-        )
-        await db_ops.save_final_report(run.run_id, final)
-        await db_ops.update_run_status(run.run_id, RunStatus.COMPLETED)
-        step = AgentStep(
-            run_id=run.run_id, agent=AgentName.SYSTEM, status=StepStatus.COMPLETED,
-            message=f"Report saved to {path}",
-            metadata={"path": path, "chars": len(report_text)},
-        )
-        await db_ops.add_step(step)
-        emit_sse(run.run_id, "status", {"status": "completed", "report_path": path})
-        logger.info("Pipeline complete: %s → %s", run.run_id, path)
-
-    try:
-        await orchestrator.orchestrate(
-            run=run,
-            researcher_fn=researcher.run_researcher,
-            code_analyst_fn=code_analyst.run_code_analyst,
-            writer_fn=writer.run_writer,
-            critic_fn=critic.run_critic,
-            deliver_fn=deliver,
-            sse_emit=emit_sse,
-        )
-    except Exception as e:
-        logger.exception("Pipeline failed for %s: %s", run.run_id, e)
-        await db_ops.update_run_status(run.run_id, RunStatus.FAILED, str(e))
-        emit_sse(run.run_id, "status", {"status": "failed", "error": str(e)})
-
-
-# ─── Webhook: GitHub ──────────────────────────────────────────────────────────
-
+# ─── GitHub Webhook ───────────────────────────────────────────────────────────
 @app.post("/webhook/github", status_code=202)
 async def github_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Receives GitHub webhook events (push, pull_request, issues).
-    Validates HMAC signature, returns 202 immediately, runs pipeline in background.
+    Receives GitHub webhook events.
+    Handles: pull_request (opened/synchronize/reopened) and issue_comment (/re-review).
+    Returns 202 immediately; pipeline runs in background.
     """
     body = await request.body()
 
-    # Validate signature if secret is set
+    # HMAC validation
     secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
     if secret:
-        sig_header = request.headers.get("X-Hub-Signature-256", "")
+        sig = request.headers.get("X-Hub-Signature-256", "")
         expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        # Note: Python 3 hmac.new() — correct usage
-        if not hmac.compare_digest(sig_header, expected):
+        if not hmac.compare_digest(sig, expected):
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    event_type_raw = request.headers.get("X-GitHub-Event", "push")
+    event_type_raw = request.headers.get("X-GitHub-Event", "")
     payload = json.loads(body)
-
-    # Map GitHub event to our EventType
-    event_map = {
-        "push": EventType.PUSH,
-        "pull_request": EventType.PULL_REQUEST,
-        "issues": EventType.ISSUES,
-    }
-    event_type = event_map.get(event_type_raw, EventType.PUSH)
-
-    # Extract topic + repo
     repo = payload.get("repository", {}).get("full_name", "unknown/repo")
 
-    if event_type == EventType.PUSH:
-        commits = payload.get("commits", [])
-        msg = commits[0]["message"] if commits else "Push event"
-        topic = f"{repo}: {msg[:80]}"
-    elif event_type == EventType.PULL_REQUEST:
-        pr = payload.get("pull_request", {})
-        topic = f"{repo} PR #{pr.get('number', '?')}: {pr.get('title', '')[:60]}"
-    else:
-        issue = payload.get("issue", {})
-        topic = f"{repo} Issue #{issue.get('number', '?')}: {issue.get('title', '')[:60]}"
+    # ── Pull Request event ─────────────────────────────────────────────────────
+    if event_type_raw == "pull_request":
+        action = payload.get("action", "")
+        if action not in ("opened", "synchronize", "reopened"):
+            return {"status": "ignored", "reason": f"PR action '{action}' not monitored"}
 
-    run = PipelineRun(
-        run_id=str(uuid.uuid4()),
-        event_type=event_type,
-        topic=topic,
-        repo=repo,
-        trigger_payload=payload,
-    )
-    await db_ops.create_run(run)
-    background_tasks.add_task(run_pipeline, run)
+        pr     = payload.get("pull_request", {})
+        pr_num = pr.get("number")
+        title  = pr.get("title", "")
+        author = pr.get("user", {}).get("login", "")
+        branch = pr.get("head", {}).get("ref", "")
+        sha    = pr.get("head", {}).get("sha", "")
 
-    logger.info("GitHub webhook received: %s → run %s", event_type.value, run.run_id)
-    return {
-        "run_id": run.run_id,
-        "status": "accepted",
-        "stream_url": f"/stream/{run.run_id}",
-    }
+        # Fetch the actual diff
+        diff_text = get_pr_diff(repo, pr_num) if pr_num else ""
+
+        run = PipelineRun(
+            run_id=str(uuid.uuid4()),
+            repo=repo,
+            pr_number=pr_num,
+            pr_title=title,
+            pr_author=author,
+            branch=branch,
+            commit_sha=sha,
+            diff_text=diff_text,
+            event_type=EventType.PULL_REQUEST,
+            topic=f"PR #{pr_num}: {title[:60]}",
+        )
+        await db_ops.create_run(run)
+        background_tasks.add_task(run_pipeline, run, emit_sse)
+
+        logger.info("PR webhook: #%d '%s' by %s → run %s", pr_num, title, author, run.run_id)
+        return {"run_id": run.run_id, "status": "accepted",
+                "stream_url": f"/stream/{run.run_id}"}
+
+    # ── Issue comment — /re-review command ────────────────────────────────────
+    elif event_type_raw == "issue_comment":
+        comment_body = payload.get("comment", {}).get("body", "")
+        if "/re-review" not in comment_body:
+            return {"status": "ignored"}
+
+        pr_num = payload.get("issue", {}).get("number")
+        if not pr_num:
+            return {"status": "ignored", "reason": "Not a PR comment"}
+
+        meta     = get_pr_metadata(repo, pr_num)
+        diff_text = get_pr_diff(repo, pr_num)
+
+        run = PipelineRun(
+            run_id=str(uuid.uuid4()),
+            repo=repo,
+            pr_number=pr_num,
+            pr_title=meta.get("title", f"PR #{pr_num}"),
+            pr_author=meta.get("author", ""),
+            branch=meta.get("branch", ""),
+            commit_sha=meta.get("commit_sha", ""),
+            diff_text=diff_text,
+            event_type=EventType.PULL_REQUEST,
+            topic=f"Re-review PR #{pr_num}: {meta.get('title', '')[:50]}",
+        )
+        await db_ops.create_run(run)
+        background_tasks.add_task(run_pipeline, run, emit_sse)
+
+        logger.info("/re-review triggered on PR #%d → run %s", pr_num, run.run_id)
+        return {"run_id": run.run_id, "status": "accepted",
+                "stream_url": f"/stream/{run.run_id}"}
+
+    # ── push to main — regression check ──────────────────────────────────────
+    elif event_type_raw == "push":
+        ref = payload.get("ref", "")
+        if not any(ref.endswith(b) for b in ("/main", "/master")):
+            return {"status": "ignored", "reason": "Not a main branch push"}
+
+        commits  = payload.get("commits", [])
+        msg      = commits[0]["message"] if commits else "Push"
+        sha      = payload.get("after", "")
+
+        run = PipelineRun(
+            run_id=str(uuid.uuid4()),
+            repo=repo,
+            commit_sha=sha,
+            diff_text="",   # No PR diff for direct push
+            event_type=EventType.PUSH,
+            topic=f"{repo}: {msg[:60]}",
+        )
+        await db_ops.create_run(run)
+        background_tasks.add_task(run_pipeline, run, emit_sse)
+
+        return {"run_id": run.run_id, "status": "accepted"}
+
+    return {"status": "ignored", "reason": f"Event '{event_type_raw}' not handled"}
 
 
 # ─── Manual Trigger ───────────────────────────────────────────────────────────
-
 @app.post("/trigger", response_model=TriggerResponse)
 async def manual_trigger(req: ManualTriggerRequest, background_tasks: BackgroundTasks):
-    """
-    Manually trigger the pipeline with a custom topic.
-    """
+    """Manually trigger the pipeline on any PR (for testing / demo)."""
+    meta      = get_pr_metadata(req.repo, req.pr_number)
+    diff_text = get_pr_diff(req.repo, req.pr_number)
+
     run = PipelineRun(
         run_id=str(uuid.uuid4()),
-        event_type=EventType.MANUAL,
-        topic=req.topic,
         repo=req.repo,
-        trigger_payload={"topic": req.topic, "context": req.context or ""},
+        pr_number=req.pr_number,
+        pr_title=meta.get("title") or req.topic or f"PR #{req.pr_number}",
+        pr_author=meta.get("author", ""),
+        branch=meta.get("branch", ""),
+        commit_sha=meta.get("commit_sha", ""),
+        diff_text=diff_text,
+        event_type=EventType.PULL_REQUEST,
+        topic=req.topic or f"PR #{req.pr_number}: {meta.get('title', '')[:50]}",
     )
     await db_ops.create_run(run)
-    background_tasks.add_task(run_pipeline, run)
+    background_tasks.add_task(run_pipeline, run, emit_sse)
 
-    logger.info("Manual trigger: '%s' → run %s", req.topic, run.run_id)
+    logger.info("Manual trigger: %s PR #%d → run %s", req.repo, req.pr_number, run.run_id)
     return TriggerResponse(
         run_id=run.run_id,
         status="accepted",
-        message=f"Pipeline started for: {req.topic}",
+        message=f"Pipeline started for PR #{req.pr_number}",
         stream_url=f"/stream/{run.run_id}",
     )
 
 
 # ─── SSE Stream ───────────────────────────────────────────────────────────────
-
 @app.get("/stream/{run_id}")
 async def stream_run(run_id: str, request: Request):
-    """
-    Server-Sent Events stream for live pipeline updates.
-    Dashboard connects here to get real-time agent step events.
-    """
+    """SSE stream for live pipeline updates. Dashboard connects here."""
     async def event_generator():
-        # Send current state first
         run = await db_ops.get_run(run_id)
         if run:
             yield {"event": "init", "data": json.dumps({
-                "run_id": run_id,
-                "status": run.status.value,
-                "topic": run.topic,
-                "steps": [s.model_dump(mode="json") for s in run.steps],
+                "run_id":    run_id,
+                "status":    run.status.value,
+                "topic":     run.topic,
+                "pr_number": run.pr_number,
+                "repo":      run.repo,
+                "steps":     [s.model_dump(mode="json") for s in run.steps],
             })}
 
         queue = _sse_queues[run_id]
@@ -259,35 +256,35 @@ async def stream_run(run_id: str, request: Request):
             if await request.is_disconnected():
                 break
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                yield {"event": event["event"], "data": json.dumps(event["data"])}
-                # Stop streaming if pipeline is done
-                if event["event"] in ("complete",) or (
-                    event["event"] == "status" and event["data"].get("status") in ("completed", "failed")
+                evt = await asyncio.wait_for(queue.get(), timeout=30.0)
+                yield {"event": evt["event"], "data": json.dumps(evt["data"])}
+                if evt["event"] in ("complete",) or (
+                    evt["event"] == "status" and
+                    evt["data"].get("status") in ("completed", "failed")
                 ):
                     break
             except asyncio.TimeoutError:
-                yield {"event": "ping", "data": json.dumps({"ts": datetime.utcnow().isoformat()})}
+                yield {"event": "ping",
+                       "data": json.dumps({"ts": datetime.utcnow().isoformat()})}
 
     return EventSourceResponse(event_generator())
 
 
 # ─── Status Endpoints ─────────────────────────────────────────────────────────
-
 @app.get("/status")
 async def list_runs():
-    """List all pipeline runs (recent 50)."""
     runs = await db_ops.get_all_runs(limit=50)
     return [
         {
-            "run_id": r.run_id,
-            "status": r.status.value,
-            "topic": r.topic,
-            "event_type": r.event_type.value,
-            "repo": r.repo,
-            "created_at": r.created_at.isoformat(),
-            "updated_at": r.updated_at.isoformat(),
-            "has_report": r.final_report is not None,
+            "run_id":      r.run_id,
+            "status":      r.status.value,
+            "topic":       r.topic,
+            "repo":        r.repo,
+            "pr_number":   r.pr_number,
+            "verdict":     r.decision.verdict.value if r.decision else None,
+            "score":       r.decision.scores.overall if r.decision else None,
+            "created_at":  r.created_at.isoformat(),
+            "updated_at":  r.updated_at.isoformat(),
         }
         for r in runs
     ]
@@ -295,84 +292,53 @@ async def list_runs():
 
 @app.get("/status/{run_id}")
 async def get_run_status(run_id: str):
-    """Get detailed status for a specific run."""
     run = await db_ops.get_run(run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return {
-        "run_id": run.run_id,
-        "status": run.status.value,
-        "topic": run.topic,
-        "event_type": run.event_type.value,
-        "repo": run.repo,
-        "created_at": run.created_at.isoformat(),
-        "updated_at": run.updated_at.isoformat(),
-        "completed_at": run.completed_at.isoformat() if run.completed_at else None,
+        "run_id":      run.run_id,
+        "status":      run.status.value,
+        "topic":       run.topic,
+        "repo":        run.repo,
+        "pr_number":   run.pr_number,
+        "pr_title":    run.pr_title,
+        "pr_author":   run.pr_author,
+        "verdict":     run.decision.verdict.value if run.decision else None,
+        "scores":      run.decision.scores.model_dump() if run.decision else None,
+        "reasoning":   run.decision.reasoning if run.decision else None,
+        "github_comment": run.github_comment_url,
+        "github_issue":   run.github_issue_url,
+        "created_at":  run.created_at.isoformat(),
         "steps": [
             {
-                "step_id": s.step_id,
-                "agent": s.agent.value,
-                "status": s.status.value,
-                "message": s.message,
-                "started_at": s.started_at.isoformat(),
-                "completed_at": s.completed_at.isoformat() if s.completed_at else None,
-                "metadata": s.metadata,
+                "agent":     s.agent.value,
+                "status":    s.status.value,
+                "message":   s.message,
+                "metadata":  s.metadata,
             }
             for s in run.steps
         ],
-        "has_report": run.final_report is not None,
-        "critic_score": run.final_report.critic_score.model_dump() if run.final_report and run.final_report.critic_score else None,
         "error": run.error,
     }
 
 
-@app.get("/report/{run_id}")
-async def get_report(run_id: str):
-    """Fetch the final markdown report for a run."""
-    run = await db_ops.get_run(run_id)
-    if not run or not run.final_report:
-        raise HTTPException(status_code=404, detail="Report not found")
-    return {
-        "run_id": run_id,
-        "topic": run.final_report.topic,
-        "report_markdown": run.final_report.report_markdown,
-        "critic_score": run.final_report.critic_score.model_dump() if run.final_report.critic_score else None,
-        "revision_count": run.final_report.revision_count,
-        "generated_at": run.final_report.generated_at.isoformat(),
-        "report_path": run.final_report.report_path,
-    }
+# ─── Health + Root ────────────────────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "QualityEngine AI", "version": "2.0.0"}
 
-
-# ─── Root ─────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Redirect to dashboard."""
-    return HTMLResponse("""
-<!DOCTYPE html>
-<html>
-<head>
+    return HTMLResponse("""<!DOCTYPE html><html><head>
   <meta http-equiv="refresh" content="0;url=/dashboard/">
-  <title>NewsRoom AI</title>
-</head>
-<body>Redirecting to dashboard...</body>
-</html>
-""")
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "NewsRoom AI", "version": "1.0.0"}
+  <title>QualityEngine AI</title>
+</head><body>Redirecting...</body></html>""")
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "main:app",
-        host=os.environ.get("HOST", "0.0.0.0"),
-        port=int(os.environ.get("PORT", 8000)),
-        reload=False,
-        log_level="info",
-    )
+    uvicorn.run("main:app", host="0.0.0.0",
+                port=int(os.environ.get("PORT", 8000)),
+                reload=False, log_level="info")
