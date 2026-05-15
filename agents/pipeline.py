@@ -23,7 +23,7 @@ import db.database as db_ops
 from tools import github_api
 
 from agents import orchestrator, pr_reviewer, security_scanner
-from agents import test_generator, self_healer, decision_agent
+from agents import test_generator, self_healer, decision_agent, researcher
 
 logger = logging.getLogger("qualityengine.pipeline")
 
@@ -63,6 +63,19 @@ async def run_pipeline(run: PipelineRun, sse_emit: Callable) -> None:
             logger.info("Skipping pipeline: %s", plan.skip_reason)
             await _handle_skip(run, plan.skip_reason, sse_emit)
             return
+
+        # ── Step 1.5: Web Research (if requested) ──────────────────────────────
+        if plan.research_plan:
+            _emit_agent(sse_emit, run.run_id, "researcher",
+                        f"Gathering web context for: {plan.research_plan.main_topic}...")
+            findings = await researcher.run_researcher(run, plan.research_plan)
+            run.research_findings = findings
+            
+            sse_emit(run.run_id, "research", {
+                "topic":        findings.topic,
+                "searches":     findings.searches_performed,
+                "key_findings": findings.key_findings,
+            })
 
         # ── Step 2: Parallel fan-out — PR Reviewer + Security Scanner ──────────
         _emit_agent(sse_emit, run.run_id, "pr_reviewer",
@@ -111,7 +124,6 @@ async def run_pipeline(run: PipelineRun, sse_emit: Callable) -> None:
         if (
             not test_result.success
             and not test_result.timed_out
-            and (test_result.failed > 0 or test_result.errors > 0)
         ):
             _emit_agent(sse_emit, run.run_id, "self_healer",
                         f"Tests failed — attempting self-heal (max 3 attempts)...")
@@ -209,10 +221,23 @@ async def _execute_github_action(
     comment_url = None
     issue_url   = None
 
+    # ── Unconditionally push any healed source files to the PR branch ──
+    metadata = getattr(run, "metadata", {}) or {}
+    source_fixes = {k.replace("healed_source_", ""): v for k, v in metadata.items() if k.startswith("healed_source_")}
+    for fname, fcontent in source_fixes.items():
+        if run.branch:
+            github_api.update_file_on_branch(
+                repo=repo,
+                branch=run.branch,
+                path=fname,
+                content=fcontent,
+                commit_message=f"🤖 Auto-fix: QualityEngine healed {fname}"
+            )
+
     if decision.verdict == Verdict.MERGE:
         # Post approval review + merge
         body = _format_approval_comment(decision)
-        comment_url = github_api.post_pr_review(repo, pr_num, sha, body, "APPROVE")
+        comment_url = github_api.post_pr_review(repo, pr_num, sha, body, "COMMENT")
         merged = github_api.merge_pr(
             repo, pr_num,
             commit_title=f"Auto-merge PR #{pr_num}: {run.pr_title or 'via QualityEngine'}",
@@ -228,7 +253,7 @@ async def _execute_github_action(
         body = _format_merge_with_fix_comment(decision, run.heal_attempts)
         comment_url = github_api.post_pr_comment(repo, pr_num, body)
         github_api.post_pr_review(repo, pr_num, sha,
-            "QualityEngine Auto-approved after self-healing.", "APPROVE")
+            "QualityEngine Auto-approved after self-healing.", "COMMENT")
         github_api.merge_pr(
             repo, pr_num,
             commit_title=f"Auto-merge (self-healed) PR #{pr_num}: {run.pr_title or ''}",

@@ -22,8 +22,8 @@ import db.database as db_ops
 logger = logging.getLogger("qualityengine.decision_agent")
 
 # Scoring thresholds
-MERGE_THRESHOLD       = 7.0   # overall score needed for auto-merge
-MERGE_FIX_THRESHOLD   = 6.5   # score needed for merge-with-fix
+MERGE_THRESHOLD       = 6.5   # overall score needed for auto-merge
+MERGE_FIX_THRESHOLD   = 6.0   # score needed for merge-with-fix
 REJECT_REVIEW_SCORE   = 4.0   # review score at or below → auto-reject
 CRITICAL_BLOCK        = True  # any critical security finding = auto-reject
 
@@ -36,13 +36,13 @@ def _build_chain():
 You have received reports from specialist agents. Make a clear, justified decision.
 
 DECISION RULES (follow these exactly):
-- MERGE: review score >= 7 AND security score >= 7 AND tests pass AND no CRITICAL security findings
-- MERGE_WITH_FIX: healing succeeded AND overall >= 6.5 AND no CRITICAL security findings
+- MERGE: review score >= 6 AND security score >= 6 AND tests pass AND no CRITICAL security findings
+- MERGE_WITH_FIX: healing succeeded AND overall >= 6.0 AND no CRITICAL security findings
 - BUG_REPORT: tests failed after all healing attempts (regardless of scores)
 - REJECT: CRITICAL security finding OR review score <= 4 OR security score <= 4
 - REQUEST_CHANGES (use REJECT verdict): score 5-6 with fixable issues
 
-IMPORTANT: If tests pass and scores are 7+, you MUST return MERGE. Don't be overly conservative."""),
+IMPORTANT: If tests pass and scores are 6+, you MUST return MERGE. Don't be overly conservative."""),
         ("human", """Make a final PR decision based on these agent reports.
 
 PR: {pr_title}
@@ -67,12 +67,12 @@ Self-healing succeeded: {healing_succeeded}
 Heal attempts: {heal_attempts}
 
 ─── DECISION RULES ───────────────────────────────────────────────────────────
-- MERGE: review >= 7 AND security >= 7 AND tests pass AND no CRITICAL security findings
-- MERGE_WITH_FIX: healing succeeded AND overall >= 6.5 AND no CRITICAL findings
+- MERGE: review >= 6 AND security >= 6 AND tests pass AND no CRITICAL security findings
+- MERGE_WITH_FIX: healing succeeded AND overall >= 6.0 AND no CRITICAL findings
 - BUG_REPORT: tests failed after all healing (even if code quality is good)
 - REJECT: CRITICAL security finding OR review score <= 4
 
-IMPORTANT: If tests passed and both review/security are 7+, return MERGE.
+IMPORTANT: If tests passed and both review/security are 6+, return MERGE.
 
 Produce a PRDecision with:
 - verdict: MERGE / REJECT / MERGE_WITH_FIX / BUG_REPORT
@@ -137,8 +137,8 @@ def _apply_verdict_rules(
     })
 
     code_looks_good = (
-        review.score >= 7
-        and security.score >= 7
+        review.score >= 6
+        and security.score >= 6
         and security.critical_count == 0
         and security.recommendation != "BLOCK"
         and review.recommendation != "REJECT"
@@ -229,6 +229,8 @@ def _apply_verdict_rules(
         return decision.model_copy(update={
             "verdict": Verdict.BUG_REPORT,
             "scores": scores,
+            "bug_title": decision.bug_title or "Bug detected in PR: Failing tests and poor review",
+            "bug_body": decision.bug_body or f"The code in this PR failed all test generation and healing attempts.\n\n**Review Score:** {review.score}/10\n**Security Score:** {security.score}/10\n**Test Failures:** {test_result.failed} failed, {test_result.errors} errors."
         })
 
     # Default: trust reject from LLM, otherwise reject on ambiguous failure

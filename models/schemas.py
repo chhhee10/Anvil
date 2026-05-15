@@ -26,6 +26,7 @@ class StepStatus(str, Enum):
 
 class AgentName(str, Enum):
     ORCHESTRATOR     = "orchestrator"
+    RESEARCHER       = "researcher"
     PR_REVIEWER      = "pr_reviewer"
     SECURITY_SCANNER = "security_scanner"
     TEST_GENERATOR   = "test_generator"
@@ -92,6 +93,36 @@ class QualityPlan(BaseModel):
     security_focus:  List[str]        # Specific security aspects to check
     test_functions:  List[str]        # Function signatures to generate tests for
     skip_reason:     Optional[str] = None  # If pipeline should be skipped (e.g. docs only)
+    research_plan:   Optional[ResearchPlan] = None
+
+
+# ─── Researcher Output ───────────────────────────────────────────────────────
+
+class SearchResult(BaseModel):
+    url: str
+    title: str
+    content: str
+
+class ResearchTask(BaseModel):
+    query: str
+    purpose: str
+
+class ResearchPlan(BaseModel):
+    """Orchestrator's plan for web research."""
+    main_topic: str
+    summary: str
+    research_tasks: List[ResearchTask]
+
+class ResearchFindings(BaseModel):
+    """Output from the Researcher Agent via Tavily search."""
+    topic: str
+    searches_performed: int
+    key_findings: List[str] = Field(default_factory=list)
+    security_advisories: List[str] = Field(default_factory=list)
+    ecosystem_trends: List[str] = Field(default_factory=list)
+    related_projects: List[str] = Field(default_factory=list)
+    raw_results: List[SearchResult] = Field(default_factory=list)
+    synthesis: str
 
 
 # ─── PR Reviewer Output ───────────────────────────────────────────────────────
@@ -194,9 +225,11 @@ class PipelineRun(BaseModel):
     updated_at:   datetime        = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
     # Agent outputs
-    quality_plan:    Optional[QualityPlan]    = None
-    review_report:   Optional[ReviewReport]   = None
-    security_report: Optional[SecurityReport] = None
+    quality_plan:      Optional[QualityPlan]      = None
+    research_plan:     Optional[ResearchPlan]     = None
+    research_findings: Optional[ResearchFindings] = None
+    review_report:     Optional[ReviewReport]     = None
+    security_report:   Optional[SecurityReport]   = None
     test_result:     Optional[TestResult]     = None
     heal_attempts:   List[HealAttempt]        = Field(default_factory=list)
     decision:        Optional[PRDecision]     = None
@@ -207,6 +240,7 @@ class PipelineRun(BaseModel):
     steps: List[AgentStep] = Field(default_factory=list)
     error: Optional[str]   = None
     topic: str             = ""   # human readable label for dashboard
+    metadata: dict         = Field(default_factory=dict)
 
 
 # ─── API Request / Response Models ───────────────────────────────────────────

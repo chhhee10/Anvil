@@ -26,21 +26,30 @@ logger = logging.getLogger("qualityengine.self_healer")
 MAX_HEAL_ATTEMPTS = 3
 
 
+
 def _build_chain():
-    llm = get_str_llm(temperature=0.4)
+    llm = get_str_llm(temperature=0.3)
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are a senior Python engineer debugging failing pytest tests.
-You will be given failing test code and the pytest error output.
-The source files are physically in the sandbox directory — the imports are correct.
-Your job is to fix ONLY the test code so the assertions and test logic are correct.
+        ("system", """You are a senior Python engineer debugging failing tests.
+Your job is to fix the bug in either the test code OR the source code.
 
 RULES:
-1. Output ONLY valid Python code — no markdown, no explanation
-2. Keep the same imports (the source files exist in sandbox)
-3. Fix incorrect assertions, wrong expected values, wrong argument usage
-4. Do NOT redefine the functions being tested
-5. Runnable with: python3 -m pytest test_generated.py -v"""),
+1. If the test logic is wrong, fix the test code.
+2. If the source code is genuinely broken (e.g. throws error, bad math, missing logic), fix the source code!
+3. Output the FULL contents of any file you change. Do not omit code.
+
+FORMAT INSTRUCTIONS:
+For each file you change, you MUST use this exact format:
+### FILE: test_generated.py
+```python
+<full test code>
+```
+### FILE: math_utils.py
+```python
+<full source code>
+```
+Output NOTHING else except these blocks."""),
         ("human", """Fix these failing pytest tests.
 
 Attempt: {attempt} of {max_attempts}
@@ -51,18 +60,13 @@ FAILING TEST CODE:
 PYTEST ERROR OUTPUT:
 {error_output}
 
-SOURCE FILES AVAILABLE (for reference — already imported):
+SOURCE FILES AVAILABLE (for reference or modification):
 {source_list}
 
 DIFF CONTEXT:
 {diff_text}
 
-Common fixes needed:
-- Wrong expected values in assert statements → check actual function behavior from diff
-- Wrong argument types or order → match function signatures from diff
-- Missing pytest.raises context → add if testing exceptions
-
-Output ONLY the corrected Python test code.""")
+Analyze the error. Output the fixed files using the exact format requested.""")
     ])
 
     return prompt | llm | StrOutputParser()
@@ -117,26 +121,52 @@ async def run_self_healer(
         )[:3000]
 
         try:
-            fixed_code: str = await chain.ainvoke({
+            # We need to pass the ACTUAL contents of source_files so the LLM can modify them
+            source_list_verbose = "\n\n".join(f"--- {name} ---\n{content}" for name, content in source_files.items())
+
+            output_text: str = await chain.ainvoke({
                 "attempt":      str(attempt),
                 "max_attempts": str(MAX_HEAL_ATTEMPTS),
                 "test_code":    current_result.test_code,
                 "error_output": error_output,
-                "source_list":  source_list,
+                "source_list":  source_list_verbose,
                 "diff_text":    (run.diff_text or "")[:2000],
             })
 
-            fixed_code = _strip_markdown(fixed_code)
+            # Custom parser
+            import re
+            blocks = re.split(r'### FILE:\s*([^\n]+)', output_text)
+            fixed_test_code = current_result.test_code
+            found_source_fixes = {}
+
+            for i in range(1, len(blocks), 2):
+                fname = blocks[i].strip()
+                code_block = blocks[i+1]
+                code = _strip_markdown(code_block)
+                if fname == "test_generated.py":
+                    fixed_test_code = code
+                else:
+                    found_source_fixes[fname] = code
+            
+            # Apply any source code fixes to our sandbox memory
+            if found_source_fixes:
+                for fname, fcontent in found_source_fixes.items():
+                    if fname in source_files:
+                        source_files[fname] = fcontent
+                        logger.info("Healer modified source file: %s", fname)
+                        
+                        run.metadata = run.metadata if hasattr(run, "metadata") else {}
+                        run.metadata[f"healed_source_{fname}"] = fcontent
 
             # Re-run sandbox WITH the source files so imports work
             new_result = await loop.run_in_executor(
-                None, lambda fc=fixed_code: _run_in_sandbox(fc, source_files)
+                None, lambda fc=fixed_test_code: _run_in_sandbox(fc, source_files)
             )
 
             heal_attempts.append(HealAttempt(
                 attempt=attempt,
-                fix_description=_summarize_fix(fixed_code, current_result.test_code),
-                fixed_code=fixed_code,
+                fix_description=f"Patched test_generated.py and {list(found_source_fixes.keys())}",
+                fixed_code=fixed_test_code,
                 test_result=new_result,
             ))
 

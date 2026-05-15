@@ -51,6 +51,9 @@ Risk Level: {risk_level}
 Review Focus Areas:
 {review_focus}
 
+Live Web Research Context (Use this to inform your review if relevant):
+{live_web_context}
+
 Unified Diff:
 {diff_text}
 
@@ -88,12 +91,15 @@ async def run_pr_reviewer(run: PipelineRun, plan: QualityPlan) -> ReviewReport:
 
     try:
         chain = get_chain()
+        research_context = run.research_findings.synthesis if run.research_findings else "No additional web research conducted."
+        
         report: ReviewReport = await chain.ainvoke({
             "repo":         run.repo,
             "pr_title":     run.pr_title or "Unknown",
             "change_type":  plan.change_type.value,
             "risk_level":   plan.risk_level.value,
             "review_focus": "\n".join(f"- {f}" for f in plan.review_focus),
+            "live_web_context": research_context,
             "diff_text":    (run.diff_text or "No diff available")[:6000],
         })
 

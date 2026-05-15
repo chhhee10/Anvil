@@ -20,10 +20,9 @@ logger = logging.getLogger("qualityengine.router")
 
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",           # Best quality — primary
-    "qwen/qwen3-32b",                     # Strong 32B fallback
-    "meta-llama/llama-4-scout-17b-16e-instruct",  # Llama 4 Scout
-    "openai/gpt-oss-120b",               # GPT OSS 120B
-    "openai/gpt-oss-20b",                # GPT OSS 20B
+    "mixtral-8x7b-32768",                # Strong fallback
+    "llama3-70b-8192",                   # Llama 3 70B
+    "gemma2-9b-it",                      # Gemma 2 9B
     "llama-3.1-8b-instant",              # Fastest — last resort
 ]
 

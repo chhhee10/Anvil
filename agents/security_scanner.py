@@ -44,6 +44,9 @@ Repository: {repo}
 Security Focus Areas (from orchestrator):
 {security_focus}
 
+Live Web Research Context (Use this to inform your security audit if relevant):
+{live_web_context}
+
 Unified Diff:
 {diff_text}
 
@@ -82,9 +85,12 @@ async def run_security_scanner(run: PipelineRun, plan: QualityPlan) -> SecurityR
 
     try:
         chain = get_chain()
+        research_context = run.research_findings.synthesis if run.research_findings else "No additional web research conducted."
+        
         report: SecurityReport = await chain.ainvoke({
             "repo":           run.repo,
             "security_focus": "\n".join(f"- {f}" for f in plan.security_focus),
+            "live_web_context": research_context,
             "diff_text":      (run.diff_text or "No diff available")[:6000],
         })
 

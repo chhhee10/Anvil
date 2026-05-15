@@ -265,3 +265,40 @@ def create_bug_issue(repo: str, title: str, body: str,
     except Exception as e:
         logger.error("Failed to create bug issue: %s", e)
         return None
+
+def get_file_sha(repo: str, path: str, branch: str) -> Optional[str]:
+    """Get the blob SHA of a file on a specific branch (needed for updating)."""
+    url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.get(url, headers=_headers(), params={"ref": branch})
+            resp.raise_for_status()
+            return resp.json().get("sha")
+    except Exception as e:
+        logger.error("Failed to get SHA for %s on %s: %s", path, branch, e)
+        return None
+
+def update_file_on_branch(repo: str, branch: str, path: str, content: str, commit_message: str) -> bool:
+    """Commit and push an updated file directly to a branch."""
+    import base64
+    sha = get_file_sha(repo, path, branch)
+    if not sha:
+        logger.error("Cannot update %s, file not found on branch %s", path, branch)
+        return False
+        
+    url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
+    payload = {
+        "message": commit_message,
+        "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+        "sha": sha,
+        "branch": branch
+    }
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            resp = client.put(url, headers=_headers(), json=payload)
+            resp.raise_for_status()
+        logger.info("✅ Pushed direct commit: %s -> %s", commit_message, branch)
+        return True
+    except Exception as e:
+        logger.error("Failed to push commit for %s: %s", path, e)
+        return False

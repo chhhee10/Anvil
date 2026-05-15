@@ -10,7 +10,9 @@ import logging
 import omium
 from typing import List, Optional
 
-from groq import Groq
+from pydantic import BaseModel, Field
+from langchain_core.prompts import ChatPromptTemplate
+from agents.model_router import get_llm
 
 from models.schemas import (
     PipelineRun, ResearchPlan, ResearchFindings, SearchResult,
@@ -21,27 +23,15 @@ import db.database as db_ops
 
 logger = logging.getLogger("newsroom.agents.researcher")
 
-_client: Optional[Groq] = None
+class FollowupQuery(BaseModel):
+    query: str = Field(description="The specific follow-up search query to dig deeper.")
 
-
-def get_client() -> Groq:
-    global _client
-    if _client is None:
-        _client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    return _client
-
-
-def _groq_json(messages: list, temperature: float = 0.3) -> dict:
-    """Call Groq and parse JSON response."""
-    client = get_client()
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=messages,
-        temperature=temperature,
-        response_format={"type": "json_object"},
-        max_tokens=2048,
-    )
-    return json.loads(response.choices[0].message.content)
+class SynthesisResult(BaseModel):
+    key_findings: List[str] = Field(description="4-6 most important discoveries")
+    security_advisories: List[str] = Field(description="any CVEs, vulnerabilities, security issues")
+    ecosystem_trends: List[str] = Field(description="broader trends in the ecosystem")
+    related_projects: List[str] = Field(description="relevant tools, libraries, projects mentioned")
+    synthesis: str = Field(description="3-4 paragraph executive synthesis")
 
 
 def _generate_followup_query(results: List[SearchResult], hop: int, original_topic: str) -> str:
@@ -49,19 +39,16 @@ def _generate_followup_query(results: List[SearchResult], hop: int, original_top
     if not results:
         return ""
     snippets = "\n".join(f"- {r.title}: {r.content[:200]}" for r in results[:3])
-    messages = [
-        {"role": "system", "content": "You generate precise follow-up search queries for tech research. Return JSON only."},
-        {"role": "user", "content": f"""Original topic: {original_topic}
-Search hop {hop} found:
-{snippets}
-
-Generate ONE specific follow-up search query that digs deeper into the most important aspect found.
-Return JSON: {{"query": "..."}}"""}
-    ]
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You generate precise follow-up search queries for tech research."),
+        ("human", f"Original topic: {original_topic}\nSearch hop {hop} found:\n{snippets}\n\nGenerate ONE specific follow-up search query that digs deeper into the most important aspect found.")
+    ])
     try:
-        data = _groq_json(messages, temperature=0.4)
-        return data.get("query", "")
-    except Exception:
+        chain = prompt | get_llm(temperature=0.4, structured_output=FollowupQuery)
+        res = chain.invoke({})
+        return res.query
+    except Exception as e:
+        logger.error("Failed to generate followup query: %s", e)
         return ""
 
 
@@ -109,44 +96,24 @@ async def run_researcher(run: PipelineRun, plan: ResearchPlan) -> ResearchFindin
     for i, r in enumerate(all_results[:15]):  # cap at 15 for token budget
         results_text += f"\n[{i+1}] {r.title}\nURL: {r.url}\n{r.content[:600]}\n"
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a senior tech researcher. Synthesize search results into structured intelligence. "
-                "Return JSON only. Be specific, factual, and actionable."
-            )
-        },
-        {
-            "role": "user",
-            "content": f"""Topic: {plan.main_topic}
-Context: {plan.summary}
-
-Search Results:
-{results_text}
-
-Synthesize findings into JSON:
-{{
-  "key_findings": ["..."],          // 4-6 most important discoveries
-  "security_advisories": ["..."],   // any CVEs, vulnerabilities, security issues (can be empty [])
-  "ecosystem_trends": ["..."],      // broader trends in the ecosystem
-  "related_projects": ["..."],      // relevant tools, libraries, projects mentioned
-  "synthesis": "..."                // 3-4 paragraph executive synthesis
-}}"""
-        }
-    ]
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are a senior tech researcher. Synthesize search results into structured intelligence. Be specific, factual, and actionable."),
+        ("human", f"Topic: {plan.main_topic}\nContext: {plan.summary}\n\nSearch Results:\n{results_text}\n\nSynthesize findings.")
+    ])
 
     try:
-        data = _groq_json(messages)
+        chain = prompt | get_llm(temperature=0.3, structured_output=SynthesisResult)
+        data: SynthesisResult = await chain.ainvoke({})
+        
         findings = ResearchFindings(
             topic=plan.main_topic,
             searches_performed=searches_done,
-            key_findings=data.get("key_findings", []),
-            security_advisories=data.get("security_advisories", []),
-            ecosystem_trends=data.get("ecosystem_trends", []),
-            related_projects=data.get("related_projects", []),
+            key_findings=data.key_findings,
+            security_advisories=data.security_advisories,
+            ecosystem_trends=data.ecosystem_trends,
+            related_projects=data.related_projects,
             raw_results=all_results[:10],
-            synthesis=data.get("synthesis", ""),
+            synthesis=data.synthesis,
         )
         await db_ops.complete_step(
             step.step_id, StepStatus.COMPLETED,

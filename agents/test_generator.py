@@ -85,7 +85,18 @@ def _write_source_files(tmpdir: str, source_files: Dict[str, str]) -> List[str]:
     written: List[str] = []
     for rel_path, content in source_files.items():
         dest = os.path.join(tmpdir, rel_path)
-        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        dir_path = os.path.dirname(dest)
+        os.makedirs(dir_path, exist_ok=True)
+        
+        # Create __init__.py in all parent directories to ensure importability
+        current_dir = tmpdir
+        for part in rel_path.split("/")[:-1]:
+            current_dir = os.path.join(current_dir, part)
+            init_file = os.path.join(current_dir, "__init__.py")
+            if not os.path.exists(init_file):
+                with open(init_file, "w") as f:
+                    pass
+
         with open(dest, "w") as f:
             f.write(content)
         written.append(rel_path)

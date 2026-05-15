@@ -50,7 +50,8 @@ Produce a QualityPlan with:
 - review_focus: 3-5 specific things the PR Reviewer should focus on
 - security_focus: 2-4 specific security aspects to check (auth, input validation, secrets, etc.)
 - test_functions: list of function/method names visible in the diff that need unit tests
-- skip_reason: null unless this is a docs-only or trivial change that should skip testing""")
+- skip_reason: null unless this is a docs-only or trivial change that should skip testing
+- research_plan: (Optional) If the PR uses third-party libraries, complex security logic, or APIs, generate 1-3 specific web search queries to gather live context. Example: {{"main_topic": "Stripe API", "summary": "Checking for Stripe API changes", "research_tasks": [{{"query": "Stripe payment intent best practices 2026", "purpose": "Verify usage"}}]}}""")
     ])
 
     return prompt | structured_llm
