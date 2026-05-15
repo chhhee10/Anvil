@@ -36,8 +36,8 @@
 
     <div class="hero-content">
       <h1 class="hero-title">
-        We review your pull requests,<br>
-        <em>automatically.</em>
+        Your PRs reviewed, tested,<br>
+        and merged. <em>Automatically.</em>
       </h1>
     </div>
 
@@ -58,11 +58,11 @@
             <div class="fc-back-num">01</div>
             <div class="fc-back-title">Orchestrator</div>
             <ul class="fc-back-list">
-              <li>■ Analyzes PR events</li>
-              <li>■ Creates research plans</li>
-              <li>■ Fan-out via asyncio</li>
-              <li>■ Pipeline state mgmt</li>
-              <li>■ Crash recovery</li>
+              <li>▪ Parses PR diff</li>
+              <li>▪ Builds QualityPlan</li>
+              <li>▪ Classifies risk level</li>
+              <li>▪ Fan-out to agents</li>
+              <li>▪ Gemini / Groq fallback</li>
             </ul>
             <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
           </div>
@@ -81,13 +81,13 @@
           </div>
           <div class="flip-card-back">
             <div class="fc-back-num">02</div>
-            <div class="fc-back-title">Researcher</div>
+            <div class="fc-back-title">Reviewer + Scanner</div>
             <ul class="fc-back-list">
-              <li>■ Multi-hop web search</li>
-              <li>■ Security advisories</li>
-              <li>■ Ecosystem trends</li>
-              <li>■ Tavily API</li>
-              <li>■ Parallel tasks</li>
+              <li>▪ Code quality & bugs</li>
+              <li>▪ Style & logic review</li>
+              <li>▪ Secrets detection</li>
+              <li>▪ Injection patterns</li>
+              <li>▪ Run concurrently</li>
             </ul>
             <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
           </div>
@@ -106,7 +106,7 @@
           </div>
           <div class="flip-card-back">
             <div class="fc-back-num">03</div>
-            <div class="fc-back-title">Code Analyst</div>
+            <div class="fc-back-title">Test Generator</div>
             <ul class="fc-back-list">
               <li>■ Diff & patch analysis</li>
               <li>■ Breaking changes</li>
@@ -131,13 +131,13 @@
           </div>
           <div class="flip-card-back">
             <div class="fc-back-num">04</div>
-            <div class="fc-back-title">Critic</div>
+            <div class="fc-back-title">Decision Agent</div>
             <ul class="fc-back-list">
-              <li>■ Accuracy scoring</li>
-              <li>■ Completeness eval</li>
-              <li>■ Actionability rating</li>
-              <li>■ Revision requests</li>
-              <li>■ Writer feedback loop</li>
+              <li>▪ MERGE / REJECT</li>
+              <li>▪ MERGE_WITH_FIX</li>
+              <li>▪ BUG_REPORT → Issue</li>
+              <li>▪ GitHub API actions</li>
+              <li>▪ Commit status check</li>
             </ul>
             <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
           </div>
@@ -146,7 +146,6 @@
 
     </div><!-- /cards-row -->
 
-    <span class="hero-scroll-hint">SCROLL DOWN</span>
     <div class="hero-clock" id="heroClock"></div>
   </section>
 
@@ -154,10 +153,10 @@
   <section class="about" id="about">
     <div class="about-inner">
       <div class="about-label">WHAT IS ANVIL?</div>
-      <p class="reveal-text" id="revealText">ANVIL is a multi-agent autonomous pipeline that reviews your pull requests
-        without human intervention. We combine five specialized AI agents — Orchestrator, Researcher, Code Analyst,
-        Writer, and Critic — working in parallel to deliver comprehensive PR reviews in seconds, not hours. Each run is
-        webhook-triggered, fully autonomous, and streamed live to your dashboard.</p>
+      <p class="reveal-text" id="revealText">When a PR opens, ANVIL takes over. Seven specialized agents fan out in
+        parallel — reviewing code quality, scanning for secrets and injection patterns, generating and running real
+        pytest suites against the PR branch. If tests fail, a Self-Healer attempts up to three automated fixes. A
+        Decision Agent then issues the final verdict: merge, reject, or file a GitHub Issue. No human needed, ever.</p>
     </div>
   </section>
 

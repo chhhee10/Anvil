@@ -135,14 +135,17 @@ body {
   padding: 10px 20px;
   background: var(--accent);
   color: #fff;
-  border: none;
+  border: 1.5px solid #111;
   cursor: pointer;
-  transition: background .2s;
-  border-radius: 2px
+  transition: background .2s, box-shadow .15s, transform .15s;
+  border-radius: 2px;
+  box-shadow: 4px 4px 0 #111
 }
 
 .btn-cta:hover {
-  background: var(--accent-hover)
+  background: var(--accent-hover);
+  box-shadow: 2px 2px 0 #111;
+  transform: translate(2px, 2px)
 }
 
 .btn-ghost {
@@ -222,8 +225,15 @@ body {
 
 /* ── FLIP CARDS ── */
 @keyframes floatCard {
-  0%, 100% { transform: translateY(0px) }
-  50%       { transform: translateY(-12px) }
+
+  0%,
+  100% {
+    transform: translateY(0px)
+  }
+
+  50% {
+    transform: translateY(-12px)
+  }
 }
 
 .cards-row {
@@ -241,10 +251,21 @@ body {
   animation: floatCard 3.5s ease-in-out infinite
 }
 
-.flip-card:nth-child(1) { animation-delay: 0s }
-.flip-card:nth-child(2) { animation-delay: 0.5s }
-.flip-card:nth-child(3) { animation-delay: 1s }
-.flip-card:nth-child(4) { animation-delay: 1.5s }
+.flip-card:nth-child(1) {
+  animation-delay: 0s
+}
+
+.flip-card:nth-child(2) {
+  animation-delay: 0.5s
+}
+
+.flip-card:nth-child(3) {
+  animation-delay: 1s
+}
+
+.flip-card:nth-child(4) {
+  animation-delay: 1.5s
+}
 
 .flip-card:hover {
   animation-play-state: paused
@@ -274,14 +295,14 @@ body {
   padding: 14px;
   border-radius: 0;
   box-shadow: 8px 8px 0 #111;
-  border: 1px solid rgba(0,0,0,.12)
+  border: 1.5px solid #111
 }
 
 .flip-card-back {
   transform: rotateY(180deg);
   background: var(--dark);
   color: #fff;
-  border: 1px solid #222
+  border: 1.5px solid #111
 }
 
 /* Card front variants */
@@ -410,11 +431,13 @@ body {
   min-height: 100vh;
   display: flex;
   align-items: center;
-  padding: 80px 48px
+  padding: 80px 6% 80px 8%
 }
 
 .about-inner {
-  max-width: 860px
+  width: 100%;
+  flex: 1;
+  min-width: 0
 }
 
 .about-label {
@@ -426,10 +449,11 @@ body {
 }
 
 .reveal-text {
-  font-size: clamp(22px, 3vw, 36px);
+  font-size: clamp(26px, 3.8vw, 50px);
   font-weight: 500;
-  line-height: 1.5;
-  letter-spacing: -.01em
+  line-height: 1.35;
+  letter-spacing: -.03em;
+  text-align: justify
 }
 
 .reveal-text .word {
