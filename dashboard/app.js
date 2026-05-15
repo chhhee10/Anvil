@@ -1,557 +1,409 @@
-/**
- * QualityEngine AI — Dashboard skeleton
- * -------------------------------------
- * Partner: restyle via style.css. Logic + DOM hooks are stable.
- * See dashboard/README.md for SSE events and API contract.
- */
 "use strict";
 
-// ─── Agent registry (matches backend AgentName) ─────────────────────
-const AGENTS = [
-  { id: "orchestrator",      label: "Orchestrator",      parallel: false },
-  { id: "pr_reviewer",       label: "PR Reviewer",       parallel: true,  group: "review" },
-  { id: "security_scanner",  label: "Security Scanner",  parallel: true,  group: "review" },
-  { id: "test_generator",    label: "Test Generator",    parallel: false },
-  { id: "self_healer",       label: "Self-Healer",       parallel: false, optional: true },
-  { id: "decision_agent",    label: "Decision Agent",    parallel: false },
-  { id: "system",            label: "GitHub Actions",    parallel: false },
-];
+// ── State ──────────────────────────────────────────────────────────
+let runs = [], filteredRuns = [], activeRunId = null, activeSSE = null;
 
-const AGENT_MAP = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
-
-const VERDICT_CLASS = {
-  MERGE: "verdict-merge",
-  MERGE_WITH_FIX: "verdict-merge-fix",
-  REJECT: "verdict-reject",
-  BUG_REPORT: "verdict-bug",
-  SKIPPED: "verdict-skipped",
+const AGENT_CONFIG = {
+  orchestrator:     { icon: "🧠", label: "Orchestrator",      color: "rgba(201,74,46,.12)" },
+  pr_reviewer:      { icon: "🔍", label: "PR Reviewer",        color: "rgba(45,95,160,.12)" },
+  security_scanner: { icon: "🔒", label: "Security Scanner",   color: "rgba(184,134,42,.12)" },
+  test_generator:   { icon: "🧪", label: "Test Generator",     color: "rgba(58,125,82,.12)" },
+  self_healer:      { icon: "🔧", label: "Self Healer",        color: "rgba(100,80,200,.12)" },
+  decision_agent:   { icon: "⚖️",  label: "Decision Agent",     color: "rgba(201,74,46,.12)" },
+  researcher:       { icon: "📡", label: "Researcher",         color: "rgba(45,95,160,.12)" },
+  code_analyst:     { icon: "💻", label: "Code Analyst",       color: "rgba(58,125,82,.12)" },
+  writer:           { icon: "✍️",  label: "Writer",             color: "rgba(100,80,200,.12)" },
+  critic:           { icon: "🎯", label: "Critic",             color: "rgba(184,134,42,.12)" },
+  system:           { icon: "⚙️",  label: "System",             color: "rgba(68,68,68,.1)" },
 };
+const EVENT_LABELS = { push:"PUSH", pull_request:"PR", issues:"ISSUE", manual:"MANUAL", scheduled:"SCHED" };
+const STATUS_LABELS = { pending:"PENDING", running:"RUNNING", completed:"DONE", failed:"FAILED" };
 
-const SCORE_KEYS = [
-  { key: "overall",        label: "Overall" },
-  { key: "correctness",    label: "Correctness" },
-  { key: "security",       label: "Security" },
-  { key: "test_coverage",  label: "Tests" },
-  { key: "code_quality",   label: "Quality" },
-  { key: "risk",           label: "Risk" },
-];
-
-// ─── State ───────────────────────────────────────────────────────────
-let runs = [];
-let activeRunId = null;
-let activeSSE = null;
-let pollTimer = null;
-
-/** Live SSE payload cache for the selected run */
-const liveState = {
-  plan: null,
-  review: null,
-  security: null,
-  tests: null,
-  heals: [],
-  verdict: null,
-  stepper: {}, // agentId -> pending | active | done | failed | skipped
-};
-
-// ─── DOM refs ────────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-
-// ─── Init ────────────────────────────────────────────────────────────
+// ── Init ────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  buildAgentStepper();
-  bindUI();
-  checkHealth();
+  initClock();
+  initScrollReveal();
+  initNavScroll();
   fetchRuns();
-  pollTimer = setInterval(() => {
-    fetchRuns();
-    if (activeRunId) {
-      const r = runs.find((x) => x.run_id === activeRunId);
-      if (r?.status === "running") fetchRunDetail(activeRunId);
-    }
-  }, 4000);
-  setInterval(checkHealth, 30000);
+  setInterval(fetchRuns, 5000);
+  checkHealth();
 });
 
-function bindUI() {
-  $("btnOpenTrigger").addEventListener("click", openTriggerModal);
-  $("btnCloseTrigger").addEventListener("click", closeTriggerModal);
-  $("btnCancelTrigger").addEventListener("click", closeTriggerModal);
-  $("triggerForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    submitTrigger();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeTriggerModal();
-  });
+// ── Clock ───────────────────────────────────────────────────────────
+function initClock() {
+  const el = document.getElementById("heroClock");
+  if (!el) return;
+  const tick = () => {
+    const now = new Date();
+    el.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  };
+  tick(); setInterval(tick, 1000);
 }
 
-// ─── Health ──────────────────────────────────────────────────────────
+// ── Nav scroll shadow ────────────────────────────────────────────────
+function initNavScroll() {
+  const nav = document.getElementById("nav");
+  if (!nav) return;
+  window.addEventListener("scroll", () => {
+    nav.classList.toggle("scrolled", window.scrollY > 20);
+  }, { passive: true });
+}
+
+// ── Scroll-reveal text ───────────────────────────────────────────────
+function initScrollReveal() {
+  const el = document.getElementById("revealText");
+  if (!el) return;
+  const text = el.textContent;
+  const words = text.split(" ");
+  el.innerHTML = words.map(w => `<span class="word">${escHtml(w)} </span>`).join("");
+  const wordEls = el.querySelectorAll(".word");
+  const total = wordEls.length;
+
+  function update() {
+    const rect = el.parentElement.getBoundingClientRect();
+    const wh = window.innerHeight;
+    // progress: 0 when section enters bottom of viewport, 1 when section exits top
+    const progress = Math.max(0, Math.min(1, (wh - rect.top) / (rect.height + wh * 0.4)));
+    const revealed = Math.floor(progress * total);
+    wordEls.forEach((w, i) => {
+      w.style.color = i < revealed ? "var(--ink)" : "var(--ink-faint)";
+    });
+  }
+  window.addEventListener("scroll", update, { passive: true });
+  update();
+}
+
+// ── Health check ─────────────────────────────────────────────────────
 async function checkHealth() {
-  const dot = $("healthDot");
-  const label = $("healthLabel");
+  const el = document.getElementById("serverStatus");
+  const txt = document.getElementById("serverText");
+  const dot = el?.querySelector(".blink-dot");
   try {
     const res = await fetch("/health");
-    if (!res.ok) throw new Error("unhealthy");
-    const data = await res.json();
-    dot.className = "qe-health__dot qe-health__dot--ok";
-    label.textContent = data.service || "Live";
+    if (res.ok) {
+      if (txt) txt.textContent = "ONLINE";
+      if (dot) { dot.style.background = "#4caf50"; dot.style.boxShadow = "0 0 6px #4caf50"; }
+    } else throw new Error();
   } catch {
-    dot.className = "qe-health__dot qe-health__dot--err";
-    label.textContent = "Offline";
+    if (txt) txt.textContent = "OFFLINE";
+    if (dot) { dot.style.background = "#e05030"; dot.style.boxShadow = "0 0 6px #e05030"; }
   }
 }
 
-// ─── Runs list ───────────────────────────────────────────────────────
+// ── Navigate to dashboard ─────────────────────────────────────────────
+function scrollToDashboard() {
+  document.getElementById("dashboard")?.scrollIntoView({ behavior: "smooth" });
+}
+
+// ── Fetch & render runs ───────────────────────────────────────────────
 async function fetchRuns() {
   try {
     const res = await fetch("/status");
     if (!res.ok) return;
     runs = await res.json();
-    renderRunList();
-  } catch (e) {
-    console.warn("fetchRuns:", e);
-  }
+    filterRuns();
+    updateDashStats();
+    if (activeRunId) {
+      const r = runs.find(r => r.run_id === activeRunId);
+      if (r && r.status === "running") fetchRunDetail(activeRunId);
+    }
+  } catch {}
+}
+
+function filterRuns() {
+  const q = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
+  filteredRuns = q ? runs.filter(r =>
+    r.topic.toLowerCase().includes(q) ||
+    (r.repo && r.repo.toLowerCase().includes(q)) ||
+    r.status.toLowerCase().includes(q)
+  ) : [...runs];
+  renderRunList();
 }
 
 function renderRunList() {
-  const list = $("runList");
-  const count = $("runCount");
-  count.textContent = `${runs.length} run${runs.length !== 1 ? "s" : ""}`;
-
-  if (!runs.length) {
-    list.innerHTML = `
-      <div class="qe-empty" data-empty="run-list">
-        <p>No runs yet.</p>
-        <p class="qe-empty__hint">Open a PR webhook or click <strong>Review PR</strong>.</p>
-      </div>`;
+  const list = document.getElementById("runList");
+  const cnt  = document.getElementById("runCount");
+  if (cnt) cnt.textContent = runs.length;
+  if (!list) return;
+  if (!filteredRuns.length) {
+    list.innerHTML = runs.length
+      ? `<div class="dash-empty"><span class="dash-empty-icon">🔍</span><p>No matches found.</p></div>`
+      : `<div class="dash-empty"><span class="dash-empty-icon">⚙</span><p>No runs yet.<br>Click NEW RUN to start.</p></div>`;
     return;
   }
-
-  list.innerHTML = runs
-    .map((r) => {
-      const active = r.run_id === activeRunId ? " qe-run-card--active" : "";
-      const verdict = r.verdict
-        ? `<span class="qe-run-card__verdict ${VERDICT_CLASS[r.verdict] || ""}">${r.verdict}</span>`
-        : "";
-      const score =
-        r.score != null ? `<span class="qe-run-card__score">${Number(r.score).toFixed(1)}</span>` : "";
-      return `
-        <button type="button" class="qe-run-card${active}" data-run-id="${r.run_id}"
-                onclick="selectRun('${r.run_id}')">
-          <div class="qe-run-card__top">
-            <span class="qe-run-card__status qe-run-card__status--${r.status}">${r.status}</span>
-            ${verdict}
-            ${score}
-          </div>
-          <div class="qe-run-card__topic">${esc(r.topic || "Untitled run")}</div>
-          <div class="qe-run-card__meta">
-            ${r.repo ? esc(r.repo) : ""}
-            ${r.pr_number ? ` · PR #${r.pr_number}` : ""}
-            · ${relativeTime(r.created_at)}
-          </div>
-        </button>`;
-    })
-    .join("");
+  list.innerHTML = filteredRuns.map(r => `
+    <div class="run-card${activeRunId === r.run_id ? " active" : ""}" onclick="selectRun('${r.run_id}')">
+      <div class="run-card-top">
+        <span class="run-event-badge">${EVENT_LABELS[r.event_type] || r.event_type}</span>
+        <span class="run-status-dot status-dot-${r.status}"></span>
+      </div>
+      <div class="run-topic">${escHtml(r.topic)}</div>
+      <div class="run-meta">
+        <span class="run-time">${relativeTime(r.created_at)}</span>
+        ${r.repo ? `<span class="run-repo">· ${escHtml(r.repo)}</span>` : ""}
+        <span class="run-status-label label-${r.status}">${STATUS_LABELS[r.status] || r.status}</span>
+      </div>
+    </div>
+  `).join("");
 }
 
-// ─── Select run ──────────────────────────────────────────────────────
-function resetLiveState() {
-  liveState.plan = null;
-  liveState.review = null;
-  liveState.security = null;
-  liveState.tests = null;
-  liveState.heals = [];
-  liveState.verdict = null;
-  liveState.stepper = {};
-  AGENTS.forEach((a) => {
-    liveState.stepper[a.id] = a.optional ? "skipped" : "pending";
-  });
-  updateStepperUI();
+function updateDashStats() {
+  setText("dTotal",   runs.length);
+  setText("dDone",    runs.filter(r => r.status === "completed").length);
+  setText("dRunning", runs.filter(r => r.status === "running").length);
+  setText("dFailed",  runs.filter(r => r.status === "failed").length);
 }
 
+// ── Select run ────────────────────────────────────────────────────────
 async function selectRun(runId) {
   activeRunId = runId;
-  if (activeSSE) {
-    activeSSE.close();
-    activeSSE = null;
-  }
-  resetLiveState();
-
-  $("detailPlaceholder").hidden = true;
-  $("detailView").hidden = false;
-
   renderRunList();
+  if (activeSSE) { activeSSE.close(); activeSSE = null; }
+  const run = runs.find(r => r.run_id === runId);
+  if (run) renderDetailSkeleton(run);
   await fetchRunDetail(runId);
-
-  const run = runs.find((r) => r.run_id === runId);
-  if (run?.status === "running") connectSSE(runId);
+  if (run && run.status === "running") connectSSE(runId);
 }
 
 async function fetchRunDetail(runId) {
   try {
     const res = await fetch(`/status/${runId}`);
     if (!res.ok) return;
-    const detail = await res.json();
-    if (activeRunId !== runId) return;
-    renderRunDetail(detail);
-    if (detail.status === "running" && !activeSSE) connectSSE(runId);
-  } catch (e) {
-    console.warn("fetchRunDetail:", e);
-  }
+    renderDetail(await res.json());
+  } catch {}
 }
 
-// ─── Render full detail from REST ────────────────────────────────────
-function renderRunDetail(d) {
-  $("detailTopic").textContent = d.topic || d.pr_title || `PR #${d.pr_number || "?"}`;
-  $("detailMeta").innerHTML = [
-    d.repo && `<span>${esc(d.repo)}</span>`,
-    d.pr_number && `<span>PR #${d.pr_number}</span>`,
-    d.pr_author && `<span>@${esc(d.pr_author)}</span>`,
-    d.pr_title && `<span title="${esc(d.pr_title)}">${esc(truncate(d.pr_title, 40))}</span>`,
-    `<span class="qe-mono">${d.run_id.slice(0, 8)}</span>`,
-    `<span>${relativeTime(d.created_at)}</span>`,
-  ]
-    .filter(Boolean)
-    .join("");
-
-  $("detailStatus").textContent = d.status;
-  $("detailStatus").className = `qe-badge qe-badge--status qe-badge--${d.status}`;
-
-  if (d.verdict) {
-    $("detailVerdict").hidden = false;
-    $("detailVerdict").textContent = d.verdict;
-    $("detailVerdict").className = `qe-badge qe-badge--verdict ${VERDICT_CLASS[d.verdict] || ""}`;
-  } else {
-    $("detailVerdict").hidden = true;
-  }
-
-  if (d.scores) renderScores(d.scores);
-  if (d.reasoning) {
-    $("verdictReasoning").textContent = d.reasoning;
-    $("verdictBadge").textContent = d.verdict || "—";
-    $("verdictBadge").className = `qe-verdict__badge ${VERDICT_CLASS[d.verdict] || ""}`;
-  }
-
-  renderGithubLinks(d.github_comment, d.github_issue);
-
-  if (d.steps?.length) {
-    applyStepsToStepper(d.steps);
-    $("agentTimeline").innerHTML = renderTimelineHtml(d.steps);
-  }
-
-  if (d.error) {
-    $("agentTimeline").insertAdjacentHTML(
-      "afterbegin",
-      `<div class="qe-timeline__error">Error: ${esc(d.error)}</div>`
-    );
-  }
-}
-
-// ─── Agent stepper ───────────────────────────────────────────────────
-function buildAgentStepper() {
-  const ol = $("agentStepper");
-  ol.innerHTML = AGENTS.map(
-    (a) => `
-    <li class="qe-stepper__item" data-agent="${a.id}" data-state="pending">
-      <span class="qe-stepper__icon" aria-hidden="true">○</span>
-      <span class="qe-stepper__label">${a.label}</span>
-      ${a.parallel ? '<span class="qe-stepper__tag">parallel</span>' : ""}
-    </li>`
-  ).join("");
-  resetLiveState();
-}
-
-function setStepperAgent(agentId, state) {
-  if (!AGENT_MAP[agentId]) return;
-  liveState.stepper[agentId] = state;
-  if (agentId === "pr_reviewer" || agentId === "security_scanner") {
-    if (state === "active") {
-      liveState.stepper.pr_reviewer = "active";
-      liveState.stepper.security_scanner = "active";
-    }
-  }
-  updateStepperUI();
-}
-
-function applyStepsToStepper(steps) {
-  const order = AGENTS.map((a) => a.id);
-  steps.forEach((s) => {
-    const st =
-      s.status === "completed" ? "done" : s.status === "failed" ? "failed" : "active";
-    setStepperAgent(s.agent, st);
-  });
-  order.forEach((id) => {
-    if (liveState.stepper[id] === "active") liveState.stepper[id] = "done";
-  });
-}
-
-function updateStepperUI() {
-  document.querySelectorAll(".qe-stepper__item").forEach((el) => {
-    const id = el.dataset.agent;
-    const state = liveState.stepper[id] || "pending";
-    el.dataset.state = state;
-    const icons = { pending: "○", active: "◉", done: "✓", failed: "✕", skipped: "—" };
-    el.querySelector(".qe-stepper__icon").textContent = icons[state] || "○";
-  });
-}
-
-// ─── SSE ─────────────────────────────────────────────────────────────
+// ── SSE ───────────────────────────────────────────────────────────────
 function connectSSE(runId) {
   if (activeSSE) activeSSE.close();
   activeSSE = new EventSource(`/stream/${runId}`);
-
-  activeSSE.addEventListener("init", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.steps?.length) {
-      $("agentTimeline").innerHTML = renderTimelineHtml(
-        data.steps.map((s) => ({
-          agent: s.agent,
-          status: s.status,
-          message: s.message,
-          metadata: s.metadata || {},
-        }))
-      );
+  activeSSE.addEventListener("step", e => appendLiveStep(JSON.parse(e.data)));
+  activeSSE.addEventListener("status", e => {
+    const d = JSON.parse(e.data);
+    if (d.status === "completed" || d.status === "failed") {
+      setTimeout(() => { fetchRuns(); fetchRunDetail(runId); }, 600);
     }
   });
-
-  activeSSE.addEventListener("step", (e) => handleStepEvent(JSON.parse(e.data)));
-  activeSSE.addEventListener("plan", (e) => handlePlanEvent(JSON.parse(e.data)));
-  activeSSE.addEventListener("review", (e) => handleReviewEvent(JSON.parse(e.data)));
-  activeSSE.addEventListener("security", (e) => handleSecurityEvent(JSON.parse(e.data)));
-  activeSSE.addEventListener("tests", (e) => handleTestsEvent(JSON.parse(e.data)));
-  activeSSE.addEventListener("heal", (e) => handleHealEvent(JSON.parse(e.data)));
-  activeSSE.addEventListener("verdict", (e) => handleVerdictEvent(JSON.parse(e.data)));
-
-  activeSSE.addEventListener("complete", () => finishRun(runId));
-  activeSSE.addEventListener("status", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.status === "completed" || data.status === "failed") finishRun(runId);
+  activeSSE.addEventListener("complete", () => {
+    setTimeout(() => { fetchRuns(); fetchRunDetail(runId); }, 1000);
+    if (activeSSE) { activeSSE.close(); activeSSE = null; }
   });
-
-  activeSSE.onerror = () => {
-    if (activeSSE) {
-      activeSSE.close();
-      activeSSE = null;
-    }
-  };
+  activeSSE.onerror = () => { if (activeSSE) { activeSSE.close(); activeSSE = null; } };
 }
 
-function finishRun(runId) {
-  setTimeout(() => {
-    fetchRuns();
-    fetchRunDetail(runId);
-  }, 600);
-  if (activeSSE) {
-    activeSSE.close();
-    activeSSE = null;
-  }
-}
-
-function handleStepEvent(data) {
-  const agent = data.agent || "system";
-  setStepperAgent(agent, "active");
-  appendTimelineLive(agent, data.message || "", "started");
-}
-
-function handlePlanEvent(data) {
-  liveState.plan = data;
-  setStepperAgent("orchestrator", "done");
-  $("planContent").innerHTML = `
-    <dl class="qe-dl">
-      <dt>Change</dt><dd>${esc(data.change_type)}</dd>
-      <dt>Risk</dt><dd>${esc(data.risk_level)}</dd>
-      <dt>Summary</dt><dd>${esc(data.summary)}</dd>
-      <dt>Files to test</dt><dd>${(data.files || []).map(esc).join(", ") || "—"}</dd>
-    </dl>`;
-}
-
-function handleReviewEvent(data) {
-  liveState.review = data;
-  setStepperAgent("pr_reviewer", "done");
-  $("reviewContent").innerHTML = `
-    <p><strong>Score:</strong> ${data.score}/10 · <strong>${esc(data.recommendation)}</strong></p>
-    <p class="qe-muted">${esc(data.summary || "")}</p>
-    <p class="qe-muted">${data.issues ?? 0} issue(s) flagged</p>`;
-}
-
-function handleSecurityEvent(data) {
-  liveState.security = data;
-  setStepperAgent("security_scanner", "done");
-  $("securityContent").innerHTML = `
-    <p><strong>Score:</strong> ${data.score}/10 · <strong>${esc(data.verdict || data.recommendation)}</strong></p>
-    <p class="qe-muted">Critical: ${data.critical ?? 0} · High: ${data.high ?? 0}</p>
-    <p class="qe-muted">${esc(data.summary || "")}</p>`;
-}
-
-function handleTestsEvent(data) {
-  liveState.tests = data;
-  setStepperAgent("test_generator", "done");
-  const ok = data.success ? "qe-text--ok" : "qe-text--err";
-  $("testsContent").innerHTML = `
-    <p class="${ok}">
-      <strong>${data.passed ?? 0}</strong> passed ·
-      <strong>${data.failed ?? 0}</strong> failed ·
-      <strong>${data.errors ?? 0}</strong> errors
-    </p>
-    ${data.stdout ? `<pre class="qe-pre">${esc(truncate(data.stdout, 800))}</pre>` : ""}`;
-  if (!data.success && (data.failed > 0 || data.errors > 0)) {
-    setStepperAgent("self_healer", "pending");
-    liveState.stepper.self_healer = "pending";
-    $("panelHeal").hidden = false;
-  }
-}
-
-function handleHealEvent(data) {
-  $("panelHeal").hidden = false;
-  setStepperAgent("self_healer", "active");
-  liveState.heals.push(data);
-  const li = document.createElement("li");
-  li.className = "qe-heal-list__item";
-  li.innerHTML = `
-    <span>Attempt ${data.attempt}</span>
-    <span>${data.success ? "✓ fixed" : "✗ still failing"}</span>
-    <span>${data.passed ?? 0}p / ${data.failed ?? 0}f</span>
-    <p class="qe-muted">${esc(data.fix_description || "")}</p>`;
-  $("healList").appendChild(li);
-  if (data.success) setStepperAgent("self_healer", "done");
-}
-
-function handleVerdictEvent(data) {
-  liveState.verdict = data;
-  setStepperAgent("decision_agent", "done");
-  setStepperAgent("system", "active");
-  if (data.scores) renderScores(data.scores);
-  $("verdictBadge").textContent = data.verdict;
-  $("verdictBadge").className = `qe-verdict__badge ${VERDICT_CLASS[data.verdict] || ""}`;
-  $("verdictReasoning").textContent = data.reasoning || "";
-  $("detailVerdict").hidden = false;
-  $("detailVerdict").textContent = data.verdict;
-  $("detailVerdict").className = `qe-badge qe-badge--verdict ${VERDICT_CLASS[data.verdict] || ""}`;
-}
-
-function renderScores(scores) {
-  $("scoreGrid").innerHTML = SCORE_KEYS.map(({ key, label }) => {
-    const v = scores[key];
-    if (v == null) return "";
-    const num = typeof v === "number" ? v : parseFloat(v);
-    return `
-      <div class="qe-score-card" data-score-key="${key}">
-        <span class="qe-score-card__value">${Number.isInteger(num) ? num : num.toFixed(1)}</span>
-        <span class="qe-score-card__label">${label}</span>
-      </div>`;
-  }).join("");
-}
-
-function renderGithubLinks(commentUrl, issueUrl) {
-  const items = [];
-  if (commentUrl) items.push(`<li><a href="${commentUrl}" target="_blank" rel="noopener">PR comment</a></li>`);
-  if (issueUrl) items.push(`<li><a href="${issueUrl}" target="_blank" rel="noopener">Bug issue</a></li>`);
-  $("githubLinks").innerHTML = items.length
-    ? items.join("")
-    : `<li><span class="qe-muted">No links yet.</span></li>`;
-}
-
-// ─── Timeline ────────────────────────────────────────────────────────
-function renderTimelineHtml(steps) {
-  if (!steps?.length) return `<p class="qe-muted">No steps yet.</p>`;
-  return steps
-    .map((s) => {
-      const label = AGENT_MAP[s.agent]?.label || s.agent;
-      return `
-        <article class="qe-timeline__item qe-timeline__item--${s.status}">
-          <header class="qe-timeline__head">
-            <span class="qe-timeline__agent">${esc(label)}</span>
-            <span class="qe-timeline__status">${s.status}</span>
-          </header>
-          <p class="qe-timeline__msg">${esc(s.message || "")}</p>
-        </article>`;
-    })
-    .join("");
-}
-
-function appendTimelineLive(agent, message, status) {
-  const tl = $("agentTimeline");
-  if (tl.querySelector(".qe-muted")) tl.innerHTML = "";
-  const label = AGENT_MAP[agent]?.label || agent;
-  const el = document.createElement("article");
-  el.className = `qe-timeline__item qe-timeline__item--${status} qe-timeline__item--live`;
+function appendLiveStep(data) {
+  const tl = document.getElementById("timeline");
+  if (!tl) return;
+  const cfg = AGENT_CONFIG[data.agent] || { icon: "⚙️", label: data.agent, color: "rgba(68,68,68,.1)" };
+  const el = document.createElement("div");
+  el.className = "timeline-step";
   el.innerHTML = `
-    <header class="qe-timeline__head">
-      <span class="qe-timeline__agent">${esc(label)}</span>
-      <span class="qe-timeline__status">${status}</span>
-    </header>
-    <p class="qe-timeline__msg">${esc(message)}</p>`;
+    <div class="step-icon" style="background:${cfg.color};border-color:${cfg.color}">${cfg.icon}</div>
+    <div class="step-body">
+      <div class="step-agent">${cfg.label}</div>
+      <div class="step-message">${escHtml(data.message || "")}</div>
+    </div>
+    <div class="step-right"><span class="step-spinner">↻</span></div>`;
   tl.appendChild(el);
   el.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-// ─── Trigger modal ───────────────────────────────────────────────────
-function openTriggerModal() {
-  const modal = $("triggerModal");
-  if (modal.showModal) modal.showModal();
-  else modal.setAttribute("open", "");
-  $("triggerError").hidden = true;
+// ── Render Detail ─────────────────────────────────────────────────────
+function renderDetailSkeleton(run) {
+  const pane = document.getElementById("detailPane");
+  if (!pane) return;
+  pane.innerHTML = `<div class="run-detail-wrap">
+    <div class="run-detail-title">${escHtml(run.topic)}</div>
+    <div class="run-detail-meta">
+      <span class="run-event-badge">${EVENT_LABELS[run.event_type] || run.event_type}</span>
+      <span class="meta-status ms-${run.status}">${STATUS_LABELS[run.status] || run.status}</span>
+    </div>
+    <div class="section-title">AGENT TIMELINE</div>
+    <div class="timeline" id="timeline"><div class="timeline-loading">Loading…</div></div>
+  </div>`;
 }
 
-function closeTriggerModal() {
-  const modal = $("triggerModal");
-  if (modal.close) modal.close();
-  else modal.removeAttribute("open");
+function renderDetail(d) {
+  if (activeRunId !== d.run_id) return;
+  const pane = document.getElementById("detailPane");
+  if (!pane) return;
+  const scoreHtml = d.critic_score ? renderScores(d.critic_score) : "";
+  pane.innerHTML = `<div class="run-detail-wrap">
+    <div class="run-detail-title">${escHtml(d.topic)}</div>
+    <div class="run-detail-meta">
+      <span class="run-event-badge">${EVENT_LABELS[d.event_type] || d.event_type}</span>
+      <span class="meta-status ms-${d.status}">${STATUS_LABELS[d.status] || d.status}</span>
+      ${d.repo ? `<span class="meta-chip">${escHtml(d.repo)}</span>` : ""}
+      <span class="meta-chip">${d.run_id.substring(0,8)}</span>
+      <span class="meta-chip">${relativeTime(d.created_at)}</span>
+    </div>
+    ${scoreHtml}
+    ${d.has_report ? `<div class="report-preview-card">
+      <span class="report-preview-title">📄 REPORT READY</span>
+      <button class="btn-cta btn-sm" onclick="openReport('${d.run_id}')">VIEW →</button>
+    </div>` : ""}
+    ${d.error ? `<div class="error-box">❌ ${escHtml(d.error)}</div>` : ""}
+    <div class="section-title">AGENT TIMELINE</div>
+    <div class="timeline" id="timeline">${renderTimeline(d.steps)}</div>
+  </div>`;
+  if (d.status === "running" && !activeSSE) connectSSE(d.run_id);
 }
+
+function renderScores(s) {
+  const cls = v => v >= 7 ? "score-high" : v >= 5 ? "score-med" : "score-low";
+  const fill = v => v >= 7 ? "fill-high" : v >= 5 ? "fill-med" : "fill-low";
+  const pct = v => Math.round(v * 10);
+  return `<div class="score-section">
+    <div class="section-title">CRITIC SCORES</div>
+    <div class="score-grid">
+      <div class="score-card"><div class="score-val ${cls(s.overall)}">${s.overall.toFixed(1)}</div><div class="score-bar"><div class="score-bar-fill ${fill(s.overall)}" style="width:${pct(s.overall)}%"></div></div><div class="score-label">OVERALL</div></div>
+      <div class="score-card"><div class="score-val ${cls(s.accuracy)}">${s.accuracy}<span class="score-denom">/10</span></div><div class="score-bar"><div class="score-bar-fill ${fill(s.accuracy)}" style="width:${pct(s.accuracy)}%"></div></div><div class="score-label">ACCURACY</div></div>
+      <div class="score-card"><div class="score-val ${cls(s.completeness)}">${s.completeness}<span class="score-denom">/10</span></div><div class="score-bar"><div class="score-bar-fill ${fill(s.completeness)}" style="width:${pct(s.completeness)}%"></div></div><div class="score-label">COMPLETENESS</div></div>
+      <div class="score-card"><div class="score-val ${cls(s.actionability)}">${s.actionability}<span class="score-denom">/10</span></div><div class="score-bar"><div class="score-bar-fill ${fill(s.actionability)}" style="width:${pct(s.actionability)}%"></div></div><div class="score-label">ACTIONABILITY</div></div>
+    </div>
+    ${s.feedback ? `<div class="critic-feedback">"${escHtml(s.feedback)}"</div>` : ""}
+    ${s.revision_requests?.length ? `<div class="revision-chips">${s.revision_requests.map(r => `<span class="revision-chip">⚠ ${escHtml(r)}</span>`).join("")}</div>` : ""}
+  </div>`;
+}
+
+function renderTimeline(steps) {
+  if (!steps?.length) return `<div class="timeline-empty">No steps yet…</div>`;
+  return steps.map(s => {
+    const cfg = AGENT_CONFIG[s.agent] || { icon: "⚙️", label: s.agent, color: "rgba(68,68,68,.1)" };
+    const dur = s.completed_at && s.started_at
+      ? `${((new Date(s.completed_at) - new Date(s.started_at)) / 1000).toFixed(1)}s`
+      : "";
+    const isRunning = s.status === "started";
+    const statusIcons = { completed: "✅", failed: "❌", skipped: "⏭️" };
+
+    // Build meta line
+    const meta = [];
+    if (s.metadata?.searches) meta.push(`${s.metadata.searches} searches`);
+    if (s.metadata?.chars)    meta.push(`${(s.metadata.chars / 1000).toFixed(1)}k chars`);
+    if (s.metadata?.files)    meta.push(`${s.metadata.files} files`);
+
+    return `<div class="timeline-step">
+      <div class="step-icon" style="background:${cfg.color};border-color:${cfg.color}">${cfg.icon}</div>
+      <div class="step-body">
+        <div class="step-agent">${cfg.label}</div>
+        <div class="step-message">${escHtml(s.message || "")}</div>
+        ${meta.length ? `<div class="step-meta">${meta.join(" · ")}</div>` : ""}
+      </div>
+      <div class="step-right">
+        ${dur ? `<span class="step-dur">${dur}</span>` : ""}
+        ${isRunning
+          ? `<span class="step-spinner">↻</span>`
+          : `<span class="step-status-icon">${statusIcons[s.status] || ""}</span>`}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+// ── Report Modal ───────────────────────────────────────────────────────
+let currentReportMd = "";
+
+async function openReport(runId) {
+  document.getElementById("reportModal").classList.add("open");
+  document.getElementById("reportModalBody").innerHTML = `<div class="report-loading">⏳ LOADING REPORT…</div>`;
+  try {
+    const res = await fetch(`/report/${runId}`);
+    if (!res.ok) throw new Error("Not found");
+    const data = await res.json();
+    currentReportMd = data.report_markdown;
+    document.getElementById("reportModalTitle").textContent = `📄 ${data.topic}`;
+    document.getElementById("reportModalBody").innerHTML = `<div class="report-md">${simpleMarkdown(data.report_markdown)}</div>`;
+  } catch (e) {
+    document.getElementById("reportModalBody").innerHTML = `<div class="report-loading" style="color:#b84040">Failed: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function closeReportModal() { document.getElementById("reportModal").classList.remove("open"); }
+function closeReportModalIfOutside(e) { if (e.target === document.getElementById("reportModal")) closeReportModal(); }
+
+async function copyReport() {
+  if (!currentReportMd) return;
+  try {
+    await navigator.clipboard.writeText(currentReportMd);
+    const btn = document.querySelector("#reportModal .btn-ghost");
+    if (btn) { btn.textContent = "✅ COPIED!"; setTimeout(() => btn.textContent = "📋 COPY", 2000); }
+  } catch {}
+}
+
+// ── Trigger Modal ──────────────────────────────────────────────────────
+function openTriggerModal() {
+  document.getElementById("triggerModal").classList.add("open");
+  setTimeout(() => document.getElementById("topicInput").focus(), 100);
+}
+function closeTriggerModal() {
+  document.getElementById("triggerModal").classList.remove("open");
+  document.getElementById("submitLabel").textContent = "▶ LAUNCH";
+  document.getElementById("submitTrigger").disabled = false;
+}
+function closeTriggerModalIfOutside(e) { if (e.target === document.getElementById("triggerModal")) closeTriggerModal(); }
+function setTopic(t) { document.getElementById("topicInput").value = t; document.getElementById("topicInput").focus(); }
 
 async function submitTrigger() {
-  const repo = $("inputRepo").value.trim();
-  const prNumber = parseInt($("inputPrNumber").value, 10);
-  const topic = $("inputTopic").value.trim();
-  const errEl = $("triggerError");
-  errEl.hidden = true;
-
-  if (!repo || !prNumber) {
-    errEl.textContent = "Repository and PR number are required.";
-    errEl.hidden = false;
+  const topic = document.getElementById("topicInput").value.trim();
+  if (!topic) {
+    const inp = document.getElementById("topicInput");
+    inp.style.borderColor = "#b84040";
+    setTimeout(() => inp.style.borderColor = "", 1500);
     return;
   }
-
-  $("btnSubmitTrigger").disabled = true;
+  const btn = document.getElementById("submitTrigger");
+  const lbl = document.getElementById("submitLabel");
+  btn.disabled = true; lbl.textContent = "⏳ LAUNCHING…";
   try {
     const res = await fetch("/trigger", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo, pr_number: prNumber, topic: topic || undefined }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, repo: document.getElementById("repoInput").value.trim() || null, context: document.getElementById("contextInput").value.trim() || null }),
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
     closeTriggerModal();
-    $("triggerForm").reset();
+    ["topicInput","repoInput","contextInput"].forEach(id => document.getElementById(id).value = "");
+    setTimeout(() => scrollToDashboard(), 150);
     await fetchRuns();
-    selectRun(data.run_id);
+    setTimeout(() => selectRun(data.run_id), 400);
   } catch (e) {
-    errEl.textContent = e.message || "Trigger failed";
-    errEl.hidden = false;
-  } finally {
-    $("btnSubmitTrigger").disabled = false;
+    lbl.textContent = "❌ ERROR";
+    setTimeout(() => { lbl.textContent = "▶ LAUNCH"; btn.disabled = false; }, 3000);
   }
 }
 
-// ─── Utils ───────────────────────────────────────────────────────────
-function esc(str) {
-  const d = document.createElement("div");
-  d.textContent = str == null ? "" : String(str);
-  return d.innerHTML;
-}
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { closeTriggerModal(); closeReportModal(); }
+  if (e.key === "Enter" && document.getElementById("triggerModal").classList.contains("open") && document.activeElement?.tagName !== "TEXTAREA") submitTrigger();
+});
 
-function truncate(str, n) {
-  const s = String(str || "");
-  return s.length <= n ? s : s.slice(0, n) + "…";
-}
-
+// ── Utilities ──────────────────────────────────────────────────────────
+function escHtml(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
 function relativeTime(iso) {
-  const diff = (Date.now() - new Date(iso)) / 1000;
-  if (diff < 60) return `${Math.floor(diff)}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
+  if (!iso) return "—";
+  const d = (Date.now() - new Date(iso)) / 1000;
+  if (d < 5) return "just now";
+  if (d < 60) return `${Math.floor(d)}s ago`;
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+  return `${Math.floor(d/86400)}d ago`;
 }
 
-// Expose for inline onclick on run cards
-window.selectRun = selectRun;
+function simpleMarkdown(md) {
+  if (!md) return "";
+  return md
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/```[\s\S]*?```/g, b => `<pre class="report-code-block"><code>${b.replace(/^```[^\n]*\n?/,"").replace(/\n?```$/,"")}</code></pre>`)
+    .replace(/^### (.+)$/gm,"<h3>$1</h3>")
+    .replace(/^## (.+)$/gm,"<h2>$1</h2>")
+    .replace(/^# (.+)$/gm,"<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g,"<em>$1</em>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/^---+$/gm,"<hr>")
+    .replace(/^- (.+)$/gm,"<li>$1</li>")
+    .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
+    .replace(/\n\n/g,"</p><p>")
+    .replace(/^(?!<[hupoli])(.+)$/gm,"$1");
+}

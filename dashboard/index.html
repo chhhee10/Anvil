@@ -1,200 +1,379 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QualityEngine AI — Dashboard</title>
-  <meta name="description" content="Live dashboard for autonomous PR quality pipeline" />
-  <!-- Partner: swap fonts / add design system links here -->
+  <title>ANVIL — Autonomous PR Review Pipeline</title>
+  <meta name="description" content="Multi-agent autonomous PR review pipeline with live updates." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Mono:wght@300;400;500&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="qe-dashboard">
 
-  <!-- ─── HEADER ─────────────────────────────────────────────────── -->
-  <header class="qe-header" data-region="header">
-    <div class="qe-header__brand" data-slot="logo">
-      <span class="qe-header__logo-icon" aria-hidden="true">◆</span>
-      <div class="qe-header__titles">
-        <h1 class="qe-header__title">QualityEngine AI</h1>
-        <p class="qe-header__subtitle">Autonomous PR Quality Pipeline</p>
-      </div>
+<body>
+
+  <!-- ═══ NAV ═══ -->
+  <nav class="nav" id="nav">
+    <div class="nav-logo">
+      <span>⚒</span>
+      <span>ANVIL</span>
+    </div>
+    <div class="nav-links">
+      <a href="#about" class="nav-link">ABOUT</a>
+      <a href="#dashboard" class="nav-link">DASHBOARD</a>
+    </div>
+    <div class="nav-right">
+      <button class="btn-cta" onclick="openTriggerModal()">NEW RUN →</button>
+    </div>
+  </nav>
+
+  <!-- ═══ HERO ═══ -->
+  <section class="hero" id="hero">
+
+    <div class="hero-content">
+      <h1 class="hero-title">
+        Your PRs reviewed, tested,<br>
+        and merged. <em>Automatically.</em>
+      </h1>
     </div>
 
-    <div class="qe-header__actions" data-slot="header-actions">
-      <div class="qe-health" id="serverHealth" data-component="health-badge" title="Server health">
-        <span class="qe-health__dot" id="healthDot"></span>
-        <span class="qe-health__label" id="healthLabel">Checking…</span>
-      </div>
-      <button type="button" class="qe-btn qe-btn--primary" id="btnOpenTrigger" data-action="open-trigger">
-        + Review PR
-      </button>
-    </div>
-  </header>
+    <!-- FLIP CARDS -->
+    <div class="cards-row">
 
-  <!-- ─── MAIN LAYOUT ────────────────────────────────────────────── -->
-  <div class="qe-layout">
-
-    <!-- Sidebar: run history -->
-    <aside class="qe-sidebar" data-region="sidebar">
-      <div class="qe-sidebar__head">
-        <h2 class="qe-sidebar__title">Pipeline Runs</h2>
-        <span class="qe-sidebar__count" id="runCount">0 runs</span>
-      </div>
-      <div class="qe-run-list" id="runList" data-slot="run-list" role="list">
-        <!-- app.js injects .qe-run-card items -->
-        <div class="qe-empty" data-empty="run-list">
-          <p>No runs yet.</p>
-          <p class="qe-empty__hint">Open a PR webhook or click <strong>Review PR</strong>.</p>
+      <div class="flip-card" style="--card-offset: 0px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-cream">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">
+                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="8" y="4" width="4" height="4" fill="#fff" opacity=".9"/>
+                  <rect x="16" y="4" width="4" height="4" fill="#fff" opacity=".9"/>
+                  <rect x="4" y="8" width="20" height="2" fill="#fff"/>
+                  <rect x="2" y="10" width="24" height="8" rx="1" fill="#fff"/>
+                  <rect x="6" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
+                  <rect x="10" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
+                  <rect x="14" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
+                  <rect x="18" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
+                  <rect x="4" y="18" width="20" height="2" fill="#fff"/>
+                  <rect x="8" y="20" width="4" height="4" fill="#fff" opacity=".9"/>
+                  <rect x="16" y="20" width="4" height="4" fill="#fff" opacity=".9"/>
+                </svg>
+              </div>
+              <div class="fc-watermark">01</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">ORCHESTRATOR</span><span class="fc-num">01</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">01</div>
+            <div class="fc-back-title">Orchestrator</div>
+            <ul class="fc-back-list">
+              <li>▪ Parses PR diff</li>
+              <li>▪ Builds QualityPlan</li>
+              <li>▪ Classifies risk level</li>
+              <li>▪ Fan-out to agents</li>
+              <li>▪ Gemini / Groq fallback</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
         </div>
       </div>
-    </aside>
 
-    <!-- Detail: selected run -->
-    <main class="qe-main" data-region="main">
+      <div class="flip-card" style="--card-offset: -24px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-red">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">
+                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="8" y="4" width="10" height="2" fill="#111"/>
+                  <rect x="6" y="6" width="2" height="10" fill="#111"/>
+                  <rect x="18" y="6" width="2" height="10" fill="#111"/>
+                  <rect x="8" y="16" width="10" height="2" fill="#111"/>
+                  <rect x="10" y="8" width="6" height="6" fill="#111" opacity=".15"/>
+                  <rect x="16" y="18" width="2" height="2" fill="#111"/>
+                  <rect x="18" y="20" width="2" height="2" fill="#111"/>
+                  <rect x="20" y="22" width="4" height="2" fill="#111"/>
+                  <rect x="22" y="20" width="2" height="2" fill="#111"/>
+                </svg>
+              </div>
+              <div class="fc-watermark">02</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">RESEARCHER</span><span class="fc-num">02</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">02</div>
+            <div class="fc-back-title">Reviewer + Scanner</div>
+            <ul class="fc-back-list">
+              <li>▪ Code quality & bugs</li>
+              <li>▪ Style & logic review</li>
+              <li>▪ Secrets detection</li>
+              <li>▪ Injection patterns</li>
+              <li>▪ Run concurrently</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
+        </div>
+      </div>
 
-      <!-- Empty state -->
-      <section class="qe-placeholder" id="detailPlaceholder" data-state="no-selection">
-        <h2>Select a pipeline run</h2>
-        <p>Choose a run from the sidebar to see agents, scores, and the final verdict.</p>
-        <ul class="qe-placeholder__features">
-          <li>7 specialized agents</li>
-          <li>Live SSE updates while running</li>
-          <li>Auto merge / reject on GitHub</li>
-        </ul>
-      </section>
+      <div class="flip-card" style="--card-offset: -12px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-blue">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">
+                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="4" y="6" width="20" height="14" fill="#fff" opacity=".1"/>
+                  <rect x="4" y="6" width="20" height="2" fill="#fff"/>
+                  <rect x="4" y="6" width="2" height="14" fill="#fff"/>
+                  <rect x="22" y="6" width="2" height="14" fill="#fff"/>
+                  <rect x="4" y="18" width="20" height="2" fill="#fff"/>
+                  <rect x="6" y="10" width="16" height="6" fill="#fff" opacity=".15"/>
+                  <rect x="8" y="12" width="2" height="2" fill="#fff" opacity=".8"/>
+                  <rect x="12" y="12" width="6" height="2" fill="#fff" opacity=".8"/>
+                  <rect x="2" y="20" width="24" height="2" fill="#fff" opacity=".5"/>
+                </svg>
+              </div>
+              <div class="fc-watermark">03</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">CODE ANALYST</span><span class="fc-num">03</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">03</div>
+            <div class="fc-back-title">Test Generator</div>
+            <ul class="fc-back-list">
+              <li>■ Diff & patch analysis</li>
+              <li>■ Breaking changes</li>
+              <li>■ Security scanning</li>
+              <li>■ Perf impact notes</li>
+              <li>■ GitHub API</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
+        </div>
+      </div>
 
-      <!-- Active run detail (hidden until selection) -->
-      <section class="qe-detail" id="detailView" hidden data-state="has-selection">
+      <div class="flip-card" style="--card-offset: -36px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-teal">
+            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon">
+                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="12" y="2" width="4" height="2" fill="#111"/>
+                  <rect x="8" y="4" width="12" height="2" fill="#111"/>
+                  <rect x="6" y="6" width="2" height="16" fill="#111"/>
+                  <rect x="20" y="6" width="2" height="16" fill="#111"/>
+                  <rect x="8" y="22" width="12" height="2" fill="#111"/>
+                  <rect x="12" y="24" width="4" height="2" fill="#111"/>
+                  <rect x="10" y="8" width="8" height="2" fill="#111" opacity=".6"/>
+                  <rect x="8" y="10" width="2" height="8" fill="#111" opacity=".6"/>
+                  <rect x="18" y="10" width="2" height="8" fill="#111" opacity=".6"/>
+                  <rect x="10" y="18" width="8" height="2" fill="#111" opacity=".6"/>
+                  <rect x="12" y="12" width="4" height="4" fill="#111"/>
+                </svg>
+              </div>
+              <div class="fc-watermark">04</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">CRITIC</span><span class="fc-num">04</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">04</div>
+            <div class="fc-back-title">Decision Agent</div>
+            <ul class="fc-back-list">
+              <li>▪ MERGE / REJECT</li>
+              <li>▪ MERGE_WITH_FIX</li>
+              <li>▪ BUG_REPORT → Issue</li>
+              <li>▪ GitHub API actions</li>
+              <li>▪ Commit status check</li>
+            </ul>
+            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
+        </div>
+      </div>
 
-        <!-- Run header -->
-        <header class="qe-detail__header" data-region="run-header">
-          <div class="qe-detail__header-text">
-            <h2 class="qe-detail__topic" id="detailTopic">—</h2>
-            <div class="qe-detail__meta" id="detailMeta">
-              <!-- repo · PR # · author · run id · time -->
+    </div><!-- /cards-row -->
+
+    <div class="hero-clock" id="heroClock"></div>
+  </section>
+
+  <!-- ═══ SCROLL-REVEAL ABOUT ═══ -->
+  <section class="about" id="about">
+    <div class="about-inner">
+      <div class="about-label">WHAT IS ANVIL?</div>
+      <p class="reveal-text" id="revealText">When a PR opens, ANVIL takes over. Seven specialized agents fan out in
+        parallel — reviewing code quality, scanning for secrets and injection patterns, generating and running real
+        pytest suites against the PR branch. If tests fail, a Self-Healer attempts up to three automated fixes. A
+        Decision Agent then issues the final verdict: merge, reject, or file a GitHub Issue. No human needed, ever.</p>
+    </div>
+  </section>
+
+  <!-- ═══ DASHBOARD ═══ -->
+  <section class="dash-section" id="dashboard">
+    <div class="dash-inner">
+
+      <div class="dash-header">
+        <div class="dash-title-group">
+          <div class="dash-eyebrow">LIVE PIPELINE</div>
+          <h2 class="dash-title">Activity Log</h2>
+        </div>
+        <div class="dash-header-right">
+          <div class="dash-stats-row" id="dashStatsRow">
+            <div class="dash-stat"><span id="dTotal">0</span><span>TOTAL</span></div>
+            <div class="dash-stat dash-stat-green"><span id="dDone">0</span><span>DONE</span></div>
+            <div class="dash-stat dash-stat-blue"><span id="dRunning">0</span><span>RUNNING</span></div>
+            <div class="dash-stat dash-stat-red"><span id="dFailed">0</span><span>FAILED</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-body">
+        <!-- Sidebar: run list -->
+        <div class="dash-sidebar">
+          <div class="dash-sidebar-head">
+            <span class="dash-sidebar-label">RUNS</span>
+            <span id="runCount" class="dash-run-count">0</span>
+          </div>
+          <div class="dash-search">
+            <input type="text" id="searchInput" class="dash-search-input" placeholder="Search runs..."
+              oninput="filterRuns()" />
+          </div>
+          <div class="dash-run-list" id="runList">
+            <div class="dash-empty">
+              <div class="dash-empty-icon">⚙</div>
+              <p>No runs yet.<br>Click NEW RUN to start.</p>
             </div>
           </div>
-          <div class="qe-detail__header-badges" data-slot="header-badges">
-            <span class="qe-badge qe-badge--status" id="detailStatus">—</span>
-            <span class="qe-badge qe-badge--verdict" id="detailVerdict" hidden>—</span>
-          </div>
-        </header>
-
-        <!-- Agent pipeline stepper (visual progress) -->
-        <section class="qe-panel qe-panel--stepper" data-region="agent-stepper">
-          <h3 class="qe-panel__title">Agent Pipeline</h3>
-          <ol class="qe-stepper" id="agentStepper" aria-label="Agent execution order">
-            <!-- app.js builds 7 steps -->
-          </ol>
-        </section>
-
-        <div class="qe-detail__grid">
-
-          <!-- Left column: plan + timeline -->
-          <div class="qe-detail__col" data-column="primary">
-
-            <section class="qe-panel" data-region="quality-plan" id="panelPlan">
-              <h3 class="qe-panel__title">Quality Plan</h3>
-              <div class="qe-panel__body" id="planContent">
-                <p class="qe-muted">Waiting for orchestrator…</p>
-              </div>
-            </section>
-
-            <section class="qe-panel" data-region="agent-timeline">
-              <h3 class="qe-panel__title">Agent Log</h3>
-              <div class="qe-timeline" id="agentTimeline" data-slot="timeline">
-                <p class="qe-muted">No steps yet.</p>
-              </div>
-            </section>
-
-          </div>
-
-          <!-- Right column: live results + verdict -->
-          <div class="qe-detail__col" data-column="secondary">
-
-            <section class="qe-panel" data-region="scores" id="panelScores">
-              <h3 class="qe-panel__title">Scores</h3>
-              <div class="qe-score-grid" id="scoreGrid" data-slot="score-grid">
-                <!-- overall, correctness, security, test_coverage, code_quality, risk -->
-              </div>
-            </section>
-
-            <section class="qe-panel" data-region="review" id="panelReview">
-              <h3 class="qe-panel__title">PR Review</h3>
-              <div class="qe-panel__body" id="reviewContent"><p class="qe-muted">—</p></div>
-            </section>
-
-            <section class="qe-panel" data-region="security" id="panelSecurity">
-              <h3 class="qe-panel__title">Security Scan</h3>
-              <div class="qe-panel__body" id="securityContent"><p class="qe-muted">—</p></div>
-            </section>
-
-            <section class="qe-panel" data-region="tests" id="panelTests">
-              <h3 class="qe-panel__title">Generated Tests</h3>
-              <div class="qe-panel__body" id="testsContent"><p class="qe-muted">—</p></div>
-            </section>
-
-            <section class="qe-panel" data-region="heal" id="panelHeal" hidden>
-              <h3 class="qe-panel__title">Self-Healer</h3>
-              <ul class="qe-heal-list" id="healList"></ul>
-            </section>
-
-            <section class="qe-panel qe-panel--verdict" data-region="verdict" id="panelVerdict">
-              <h3 class="qe-panel__title">Final Decision</h3>
-              <div class="qe-verdict" id="verdictContent">
-                <p class="qe-verdict__badge" id="verdictBadge">—</p>
-                <p class="qe-verdict__reasoning" id="verdictReasoning"></p>
-              </div>
-            </section>
-
-            <section class="qe-panel" data-region="github-links" id="panelGithub">
-              <h3 class="qe-panel__title">GitHub</h3>
-              <ul class="qe-link-list" id="githubLinks">
-                <li><span class="qe-muted">No links yet.</span></li>
-              </ul>
-            </section>
-
-          </div>
         </div>
 
-      </section>
-    </main>
+        <!-- Detail pane -->
+        <div class="dash-detail" id="detailPane">
+          <div class="dash-detail-empty" id="detailEmpty">
+            <div class="dash-empty-icon">◈</div>
+            <p>Select a run to view<br>the detailed report.</p>
+            <div class="dash-feature-grid">
+              <div class="dash-feature">📡<span>WEBHOOK TRIGGERED</span></div>
+              <div class="dash-feature">🤖<span>5 AGENTS</span></div>
+              <div class="dash-feature">🔍<span>CODE ANALYSIS</span></div>
+              <div class="dash-feature">🎯<span>CRITIC SCORING</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="footer" id="footer">
+    <!-- Upper: CTA section -->
+    <div class="footer-cta">
+      <div class="footer-cta-left">
+        <p class="footer-cta-label">Want to integrate ANVIL into your workflow?</p>
+        <p class="footer-cta-sub">Set up the webhook once. Every PR gets reviewed, tested, and merged — or rejected — autonomously.</p>
+        <a href="https://github.com" target="_blank" class="footer-email">github.com/anvil-pipeline</a>
+        <p class="footer-cta-sub" style="margin-top:24px">Or trigger a manual run right now.</p>
+        <button class="btn-cta" onclick="openTriggerModal()" style="margin-top:12px">NEW RUN →</button>
+      </div>
+    </div>
+
+    <!-- Lower: Slim bar -->
+    <div class="footer-bottom">
+      <div class="footer-bottom-inner">
+        <div class="footer-b-col">
+          <div class="footer-logo">⚒ ANVIL</div>
+        </div>
+        <div class="footer-b-col">
+          <div class="footer-b-heading">AGENTS</div>
+          <span>Orchestrator</span>
+          <span>PR Reviewer</span>
+          <span>Security Scanner</span>
+          <span>Test Generator</span>
+          <span>Self Healer</span>
+          <span>Decision Agent</span>
+        </div>
+        <div class="footer-b-col">
+          <div class="footer-b-heading">NAVIGATE</div>
+          <a href="#hero">Home</a>
+          <a href="#about">About</a>
+          <a href="#dashboard">Dashboard</a>
+        </div>
+        <div class="footer-b-col">
+          <div class="footer-b-heading">STACK</div>
+          <span>Groq Llama 3.3</span>
+          <span>Gemini 2.0 Flash</span>
+          <span>Omium SDK</span>
+          <span>FastAPI</span>
+        </div>
+        <div class="footer-b-col footer-b-right">
+          <span>2026 / ANVIL Pipeline</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ═══ TRIGGER MODAL ═══ -->
+  <div class="modal-overlay" id="triggerModal" onclick="closeTriggerModalIfOutside(event)">
+    <div class="modal-box">
+      <div class="modal-titlebar">
+        <span>⚒ NEW MANUAL PR RUN</span>
+        <button class="modal-close" onclick="closeTriggerModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="topicInput">PR / TOPIC <span class="req">*</span></label>
+          <input type="text" id="topicInput" class="form-input" placeholder="e.g. feat: add OAuth2 login flow" />
+        </div>
+        <div class="form-group">
+          <label for="repoInput">REPO <span class="opt">(optional)</span></label>
+          <input type="text" id="repoInput" class="form-input" placeholder="e.g. user/repo" />
+        </div>
+        <div class="form-group">
+          <label for="contextInput">CONTEXT <span class="opt">(optional)</span></label>
+          <textarea id="contextInput" class="form-input form-textarea" placeholder="Additional notes..."
+            rows="3"></textarea>
+        </div>
+        <div class="example-row">
+          <span class="example-label">EXAMPLES:</span>
+          <button class="example-chip" onclick="setTopic('fix: resolve race condition in auth middleware')">auth
+            fix</button>
+          <button class="example-chip" onclick="setTopic('feat: add rate limiter with Redis backing')">rate
+            limiter</button>
+          <button class="example-chip" onclick="setTopic('refactor: migrate ORM queries to async')">async ORM</button>
+          <button class="example-chip" onclick="setTopic('security: patch SQL injection in user search')">SQL
+            patch</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeTriggerModal()">CANCEL</button>
+        <button class="btn-cta" id="submitTrigger" onclick="submitTrigger()">
+          <span id="submitLabel">▶ LAUNCH</span>
+        </button>
+      </div>
+    </div>
   </div>
 
-  <!-- ─── TRIGGER MODAL ──────────────────────────────────────────── -->
-  <dialog class="qe-modal" id="triggerModal" data-component="trigger-modal">
-    <form class="qe-modal__inner" id="triggerForm" method="dialog">
-      <header class="qe-modal__header">
-        <h2>Trigger PR Review</h2>
-        <button type="button" class="qe-modal__close" id="btnCloseTrigger" aria-label="Close">×</button>
-      </header>
-      <div class="qe-modal__body">
-        <div class="qe-field">
-          <label for="inputRepo">Repository <span class="qe-required">*</span></label>
-          <input type="text" id="inputRepo" name="repo" required
-                 placeholder="owner/repo" class="qe-input" />
+  <!-- ═══ REPORT MODAL ═══ -->
+  <div class="modal-overlay" id="reportModal" onclick="closeReportModalIfOutside(event)">
+    <div class="modal-box modal-wide">
+      <div class="modal-titlebar">
+        <span id="reportModalTitle">📄 REVIEW REPORT</span>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn-ghost btn-sm" onclick="copyReport()">📋 COPY</button>
+          <button class="modal-close" onclick="closeReportModal()">✕</button>
         </div>
-        <div class="qe-field">
-          <label for="inputPrNumber">PR number <span class="qe-required">*</span></label>
-          <input type="number" id="inputPrNumber" name="pr_number" required min="1"
-                 placeholder="1" class="qe-input" />
-        </div>
-        <div class="qe-field">
-          <label for="inputTopic">Label <span class="qe-optional">(optional)</span></label>
-          <input type="text" id="inputTopic" name="topic"
-                 placeholder="Demo run" class="qe-input" />
-        </div>
-        <p class="qe-field__hint" id="triggerError" role="alert" hidden></p>
       </div>
-      <footer class="qe-modal__footer">
-        <button type="button" class="qe-btn qe-btn--ghost" id="btnCancelTrigger">Cancel</button>
-        <button type="submit" class="qe-btn qe-btn--primary" id="btnSubmitTrigger">
-          Start pipeline
-        </button>
-      </footer>
-    </form>
-  </dialog>
+      <div class="modal-body report-body" id="reportModalBody">
+        <div class="report-loading">LOADING REPORT...</div>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>
+
 </html>
