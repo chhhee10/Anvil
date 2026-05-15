@@ -1,485 +1,409 @@
-/* ═══════════════════════════════════════════════════════════════════
-   NewsRoom AI — Dashboard JS
-   Handles: run list polling, SSE live updates, trigger modal,
-            report modal with markdown rendering, agent timeline
-   ═══════════════════════════════════════════════════════════════════ */
-
 "use strict";
 
-// ─── State ──────────────────────────────────────────────────────────
-let runs = [];
-let activeRunId = null;
-let activeSSE = null;
-let pollingTimer = null;
+// ── State ──────────────────────────────────────────────────────────
+let runs = [], filteredRuns = [], activeRunId = null, activeSSE = null;
 
-// ─── Agent config ────────────────────────────────────────────────────
 const AGENT_CONFIG = {
-  orchestrator: { icon: "🧠", label: "Orchestrator" },
-  researcher:   { icon: "🔍", label: "Researcher"   },
-  code_analyst: { icon: "💻", label: "Code Analyst" },
-  writer:       { icon: "✍️",  label: "Writer"       },
-  critic:       { icon: "🎯", label: "Critic"       },
-  system:       { icon: "⚙️",  label: "System"       },
+  orchestrator:     { icon: "🧠", label: "Orchestrator",      color: "rgba(201,74,46,.12)" },
+  pr_reviewer:      { icon: "🔍", label: "PR Reviewer",        color: "rgba(45,95,160,.12)" },
+  security_scanner: { icon: "🔒", label: "Security Scanner",   color: "rgba(184,134,42,.12)" },
+  test_generator:   { icon: "🧪", label: "Test Generator",     color: "rgba(58,125,82,.12)" },
+  self_healer:      { icon: "🔧", label: "Self Healer",        color: "rgba(100,80,200,.12)" },
+  decision_agent:   { icon: "⚖️",  label: "Decision Agent",     color: "rgba(201,74,46,.12)" },
+  researcher:       { icon: "📡", label: "Researcher",         color: "rgba(45,95,160,.12)" },
+  code_analyst:     { icon: "💻", label: "Code Analyst",       color: "rgba(58,125,82,.12)" },
+  writer:           { icon: "✍️",  label: "Writer",             color: "rgba(100,80,200,.12)" },
+  critic:           { icon: "🎯", label: "Critic",             color: "rgba(184,134,42,.12)" },
+  system:           { icon: "⚙️",  label: "System",             color: "rgba(68,68,68,.1)" },
 };
+const EVENT_LABELS = { push:"PUSH", pull_request:"PR", issues:"ISSUE", manual:"MANUAL", scheduled:"SCHED" };
+const STATUS_LABELS = { pending:"PENDING", running:"RUNNING", completed:"DONE", failed:"FAILED" };
 
-const EVENT_LABELS = {
-  push: "Push", pull_request: "Pull Request",
-  issues: "Issues", manual: "Manual", scheduled: "Scheduled",
-};
-
-// ─── Init ────────────────────────────────────────────────────────────
+// ── Init ────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+  initClock();
+  initScrollReveal();
+  initNavScroll();
   fetchRuns();
-  startPolling();
+  setInterval(fetchRuns, 5000);
+  checkHealth();
 });
 
-function startPolling() {
-  pollingTimer = setInterval(() => {
-    fetchRuns();
-    if (activeRunId) {
-      const run = runs.find(r => r.run_id === activeRunId);
-      if (run && run.status === "running") {
-        fetchRunDetail(activeRunId);
-      }
-    }
-  }, 4000);
+// ── Clock ───────────────────────────────────────────────────────────
+function initClock() {
+  const el = document.getElementById("heroClock");
+  if (!el) return;
+  const tick = () => {
+    const now = new Date();
+    el.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  };
+  tick(); setInterval(tick, 1000);
 }
 
-// ─── Fetch runs ───────────────────────────────────────────────────────
+// ── Nav scroll shadow ────────────────────────────────────────────────
+function initNavScroll() {
+  const nav = document.getElementById("nav");
+  if (!nav) return;
+  window.addEventListener("scroll", () => {
+    nav.classList.toggle("scrolled", window.scrollY > 20);
+  }, { passive: true });
+}
+
+// ── Scroll-reveal text ───────────────────────────────────────────────
+function initScrollReveal() {
+  const el = document.getElementById("revealText");
+  if (!el) return;
+  const text = el.textContent;
+  const words = text.split(" ");
+  el.innerHTML = words.map(w => `<span class="word">${escHtml(w)} </span>`).join("");
+  const wordEls = el.querySelectorAll(".word");
+  const total = wordEls.length;
+
+  function update() {
+    const rect = el.parentElement.getBoundingClientRect();
+    const wh = window.innerHeight;
+    // progress: 0 when section enters bottom of viewport, 1 when section exits top
+    const progress = Math.max(0, Math.min(1, (wh - rect.top) / (rect.height + wh * 0.4)));
+    const revealed = Math.floor(progress * total);
+    wordEls.forEach((w, i) => {
+      w.style.color = i < revealed ? "var(--ink)" : "var(--ink-faint)";
+    });
+  }
+  window.addEventListener("scroll", update, { passive: true });
+  update();
+}
+
+// ── Health check ─────────────────────────────────────────────────────
+async function checkHealth() {
+  const el = document.getElementById("serverStatus");
+  const txt = document.getElementById("serverText");
+  const dot = el?.querySelector(".blink-dot");
+  try {
+    const res = await fetch("/health");
+    if (res.ok) {
+      if (txt) txt.textContent = "ONLINE";
+      if (dot) { dot.style.background = "#4caf50"; dot.style.boxShadow = "0 0 6px #4caf50"; }
+    } else throw new Error();
+  } catch {
+    if (txt) txt.textContent = "OFFLINE";
+    if (dot) { dot.style.background = "#e05030"; dot.style.boxShadow = "0 0 6px #e05030"; }
+  }
+}
+
+// ── Navigate to dashboard ─────────────────────────────────────────────
+function scrollToDashboard() {
+  document.getElementById("dashboard")?.scrollIntoView({ behavior: "smooth" });
+}
+
+// ── Fetch & render runs ───────────────────────────────────────────────
 async function fetchRuns() {
   try {
     const res = await fetch("/status");
     if (!res.ok) return;
     runs = await res.json();
-    renderRunList();
-  } catch (e) {
-    console.warn("Fetch runs failed:", e);
-  }
+    filterRuns();
+    updateDashStats();
+    if (activeRunId) {
+      const r = runs.find(r => r.run_id === activeRunId);
+      if (r && r.status === "running") fetchRunDetail(activeRunId);
+    }
+  } catch {}
+}
+
+function filterRuns() {
+  const q = (document.getElementById("searchInput")?.value || "").toLowerCase().trim();
+  filteredRuns = q ? runs.filter(r =>
+    r.topic.toLowerCase().includes(q) ||
+    (r.repo && r.repo.toLowerCase().includes(q)) ||
+    r.status.toLowerCase().includes(q)
+  ) : [...runs];
+  renderRunList();
 }
 
 function renderRunList() {
   const list = document.getElementById("runList");
-  const count = document.getElementById("runCount");
-  count.textContent = `${runs.length} run${runs.length !== 1 ? "s" : ""}`;
-
-  if (!runs.length) {
-    list.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🤖</div>
-        <p>No runs yet.<br/>Click <strong>+ New Run</strong> to trigger the pipeline.</p>
-      </div>`;
+  const cnt  = document.getElementById("runCount");
+  if (cnt) cnt.textContent = runs.length;
+  if (!list) return;
+  if (!filteredRuns.length) {
+    list.innerHTML = runs.length
+      ? `<div class="dash-empty"><span class="dash-empty-icon">🔍</span><p>No matches found.</p></div>`
+      : `<div class="dash-empty"><span class="dash-empty-icon">⚙</span><p>No runs yet.<br>Click NEW RUN to start.</p></div>`;
     return;
   }
-
-  list.innerHTML = runs.map(r => `
-    <div class="run-card${activeRunId === r.run_id ? " active" : ""}"
-         id="card-${r.run_id}"
-         onclick="selectRun('${r.run_id}')">
+  list.innerHTML = filteredRuns.map(r => `
+    <div class="run-card${activeRunId === r.run_id ? " active" : ""}" onclick="selectRun('${r.run_id}')">
       <div class="run-card-top">
-        <span class="run-event-badge event-${r.event_type}">${EVENT_LABELS[r.event_type] || r.event_type}</span>
-        <span class="run-status-dot status-${r.status}"></span>
+        <span class="run-event-badge">${EVENT_LABELS[r.event_type] || r.event_type}</span>
+        <span class="run-status-dot status-dot-${r.status}"></span>
       </div>
       <div class="run-topic">${escHtml(r.topic)}</div>
       <div class="run-meta">
         <span class="run-time">${relativeTime(r.created_at)}</span>
         ${r.repo ? `<span class="run-repo">· ${escHtml(r.repo)}</span>` : ""}
+        <span class="run-status-label label-${r.status}">${STATUS_LABELS[r.status] || r.status}</span>
       </div>
     </div>
   `).join("");
 }
 
-// ─── Select Run ───────────────────────────────────────────────────────
+function updateDashStats() {
+  setText("dTotal",   runs.length);
+  setText("dDone",    runs.filter(r => r.status === "completed").length);
+  setText("dRunning", runs.filter(r => r.status === "running").length);
+  setText("dFailed",  runs.filter(r => r.status === "failed").length);
+}
+
+// ── Select run ────────────────────────────────────────────────────────
 async function selectRun(runId) {
   activeRunId = runId;
   renderRunList();
-
-  // Kill existing SSE
   if (activeSSE) { activeSSE.close(); activeSSE = null; }
-
   const run = runs.find(r => r.run_id === runId);
   if (run) renderDetailSkeleton(run);
-
   await fetchRunDetail(runId);
-
-  // If running, open SSE for live updates
-  if (run && run.status === "running") {
-    connectSSE(runId);
-  }
+  if (run && run.status === "running") connectSSE(runId);
 }
 
 async function fetchRunDetail(runId) {
   try {
     const res = await fetch(`/status/${runId}`);
     if (!res.ok) return;
-    const detail = await res.json();
-    renderDetail(detail);
-  } catch (e) {
-    console.warn("Fetch detail failed:", e);
-  }
+    renderDetail(await res.json());
+  } catch {}
 }
 
-// ─── SSE Live Updates ─────────────────────────────────────────────────
+// ── SSE ───────────────────────────────────────────────────────────────
 function connectSSE(runId) {
   if (activeSSE) activeSSE.close();
   activeSSE = new EventSource(`/stream/${runId}`);
-
-  activeSSE.addEventListener("step", (e) => {
-    const data = JSON.parse(e.data);
-    appendLiveStep(data);
-  });
-
-  activeSSE.addEventListener("status", (e) => {
-    const data = JSON.parse(e.data);
-    if (data.status === "completed" || data.status === "failed") {
-      setTimeout(() => {
-        fetchRuns();
-        fetchRunDetail(runId);
-      }, 500);
+  activeSSE.addEventListener("step", e => appendLiveStep(JSON.parse(e.data)));
+  activeSSE.addEventListener("status", e => {
+    const d = JSON.parse(e.data);
+    if (d.status === "completed" || d.status === "failed") {
+      setTimeout(() => { fetchRuns(); fetchRunDetail(runId); }, 600);
     }
   });
-
-  activeSSE.addEventListener("complete", (e) => {
-    setTimeout(() => {
-      fetchRuns();
-      fetchRunDetail(runId);
-    }, 1000);
+  activeSSE.addEventListener("complete", () => {
+    setTimeout(() => { fetchRuns(); fetchRunDetail(runId); }, 1000);
     if (activeSSE) { activeSSE.close(); activeSSE = null; }
   });
-
-  activeSSE.onerror = () => {
-    if (activeSSE) { activeSSE.close(); activeSSE = null; }
-  };
+  activeSSE.onerror = () => { if (activeSSE) { activeSSE.close(); activeSSE = null; } };
 }
 
-let liveStepBuffer = [];
 function appendLiveStep(data) {
-  const timeline = document.getElementById("timeline");
-  if (!timeline) return;
-
-  const agent = data.agent || "system";
-  const cfg = AGENT_CONFIG[agent] || { icon: "⚙️", label: agent };
-  const stepEl = document.createElement("div");
-  stepEl.className = "timeline-step step-running";
-  stepEl.id = `live-step-${Date.now()}`;
-  stepEl.innerHTML = `
-    <div class="step-icon icon-${agent}">${cfg.icon}</div>
+  const tl = document.getElementById("timeline");
+  if (!tl) return;
+  const cfg = AGENT_CONFIG[data.agent] || { icon: "⚙️", label: data.agent, color: "rgba(68,68,68,.1)" };
+  const el = document.createElement("div");
+  el.className = "timeline-step";
+  el.innerHTML = `
+    <div class="step-icon" style="background:${cfg.color};border-color:${cfg.color}">${cfg.icon}</div>
     <div class="step-body">
-      <div class="step-agent agent-${agent}">${cfg.label}</div>
+      <div class="step-agent">${cfg.label}</div>
       <div class="step-message">${escHtml(data.message || "")}</div>
     </div>
-    <span class="step-spinner">⟳</span>
-  `;
-  timeline.appendChild(stepEl);
-  stepEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    <div class="step-right"><span class="step-spinner">↻</span></div>`;
+  tl.appendChild(el);
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-// ─── Render Detail ────────────────────────────────────────────────────
+// ── Render Detail ─────────────────────────────────────────────────────
 function renderDetailSkeleton(run) {
   const pane = document.getElementById("detailPane");
-  pane.innerHTML = `
-    <div class="run-detail">
-      <div class="run-detail-header">
-        <div>
-          <div class="run-detail-title">${escHtml(run.topic)}</div>
-          <div class="run-detail-meta">
-            <span class="run-event-badge event-${run.event_type}">${EVENT_LABELS[run.event_type] || run.event_type}</span>
-            <span class="meta-status ms-${run.status}">${run.status.toUpperCase()}</span>
-            ${run.repo ? `<span class="meta-chip">${escHtml(run.repo)}</span>` : ""}
-            <span class="meta-chip">${run.run_id.substring(0, 8)}</span>
-          </div>
-        </div>
-      </div>
-      <div class="section-title">Agent Timeline</div>
-      <div class="timeline" id="timeline">
-        <div style="color:var(--text-3);font-size:13px;padding:12px;">Loading steps...</div>
-      </div>
+  if (!pane) return;
+  pane.innerHTML = `<div class="run-detail-wrap">
+    <div class="run-detail-title">${escHtml(run.topic)}</div>
+    <div class="run-detail-meta">
+      <span class="run-event-badge">${EVENT_LABELS[run.event_type] || run.event_type}</span>
+      <span class="meta-status ms-${run.status}">${STATUS_LABELS[run.status] || run.status}</span>
     </div>
-  `;
+    <div class="section-title">AGENT TIMELINE</div>
+    <div class="timeline" id="timeline"><div class="timeline-loading">Loading…</div></div>
+  </div>`;
 }
 
-function renderDetail(detail) {
-  if (activeRunId !== detail.run_id) return;
-
+function renderDetail(d) {
+  if (activeRunId !== d.run_id) return;
   const pane = document.getElementById("detailPane");
-
-  const scoreHtml = detail.critic_score ? renderScores(detail.critic_score) : "";
-  const reportHtml = detail.has_report ? `
-    <div class="report-preview-card">
-      <div class="report-preview-header">
-        <div class="report-preview-title">📄 Intelligence Report</div>
-        <button class="btn btn-ghost btn-sm" onclick="openReport('${detail.run_id}')">
-          View Full Report →
-        </button>
-      </div>
-      <div class="report-preview-snippet" id="reportSnippet-${detail.run_id}">Loading preview...</div>
+  if (!pane) return;
+  const scoreHtml = d.critic_score ? renderScores(d.critic_score) : "";
+  pane.innerHTML = `<div class="run-detail-wrap">
+    <div class="run-detail-title">${escHtml(d.topic)}</div>
+    <div class="run-detail-meta">
+      <span class="run-event-badge">${EVENT_LABELS[d.event_type] || d.event_type}</span>
+      <span class="meta-status ms-${d.status}">${STATUS_LABELS[d.status] || d.status}</span>
+      ${d.repo ? `<span class="meta-chip">${escHtml(d.repo)}</span>` : ""}
+      <span class="meta-chip">${d.run_id.substring(0,8)}</span>
+      <span class="meta-chip">${relativeTime(d.created_at)}</span>
     </div>
-  ` : "";
-
-  pane.innerHTML = `
-    <div class="run-detail">
-      <div class="run-detail-header">
-        <div style="flex:1">
-          <div class="run-detail-title">${escHtml(detail.topic)}</div>
-          <div class="run-detail-meta">
-            <span class="run-event-badge event-${detail.event_type}">${EVENT_LABELS[detail.event_type] || detail.event_type}</span>
-            <span class="meta-status ms-${detail.status}">${detail.status.toUpperCase()}</span>
-            ${detail.repo ? `<span class="meta-chip">${escHtml(detail.repo)}</span>` : ""}
-            <span class="meta-chip">${detail.run_id.substring(0, 8)}</span>
-            <span class="meta-chip">${relativeTime(detail.created_at)}</span>
-          </div>
-        </div>
-      </div>
-
-      ${scoreHtml}
-
-      ${detail.has_report ? `
-        <div class="report-preview-card">
-          <div class="report-preview-header">
-            <div class="report-preview-title">📄 Intelligence Report Generated</div>
-            <button class="btn btn-primary btn-sm" onclick="openReport('${detail.run_id}')">
-              View Full Report →
-            </button>
-          </div>
-        </div>
-      ` : ""}
-
-      ${detail.error ? `
-        <div style="padding:14px;border-radius:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:13px;margin-bottom:20px;">
-          ❌ Error: ${escHtml(detail.error)}
-        </div>
-      ` : ""}
-
-      <div class="section-title">Agent Timeline</div>
-      <div class="timeline" id="timeline">
-        ${renderTimeline(detail.steps)}
-      </div>
-    </div>
-  `;
-
-  // Reconnect SSE if still running
-  if (detail.status === "running" && !activeSSE) {
-    connectSSE(detail.run_id);
-  }
+    ${scoreHtml}
+    ${d.has_report ? `<div class="report-preview-card">
+      <span class="report-preview-title">📄 REPORT READY</span>
+      <button class="btn-cta btn-sm" onclick="openReport('${d.run_id}')">VIEW →</button>
+    </div>` : ""}
+    ${d.error ? `<div class="error-box">❌ ${escHtml(d.error)}</div>` : ""}
+    <div class="section-title">AGENT TIMELINE</div>
+    <div class="timeline" id="timeline">${renderTimeline(d.steps)}</div>
+  </div>`;
+  if (d.status === "running" && !activeSSE) connectSSE(d.run_id);
 }
 
-function renderScores(score) {
-  const scoreColor = (v) => v >= 7 ? "score-high" : v >= 5 ? "score-med" : "score-low";
-  return `
+function renderScores(s) {
+  const cls = v => v >= 7 ? "score-high" : v >= 5 ? "score-med" : "score-low";
+  const fill = v => v >= 7 ? "fill-high" : v >= 5 ? "fill-med" : "fill-low";
+  const pct = v => Math.round(v * 10);
+  return `<div class="score-section">
+    <div class="section-title">CRITIC SCORES</div>
     <div class="score-grid">
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.overall)}">${score.overall.toFixed(1)}</div>
-        <div class="score-label">Overall</div>
-      </div>
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.accuracy)}">${score.accuracy}/10</div>
-        <div class="score-label">Accuracy</div>
-      </div>
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.completeness)}">${score.completeness}/10</div>
-        <div class="score-label">Completeness</div>
-      </div>
-      <div class="score-card">
-        <div class="score-val ${scoreColor(score.actionability)}">${score.actionability}/10</div>
-        <div class="score-label">Actionability</div>
-      </div>
+      <div class="score-card"><div class="score-val ${cls(s.overall)}">${s.overall.toFixed(1)}</div><div class="score-bar"><div class="score-bar-fill ${fill(s.overall)}" style="width:${pct(s.overall)}%"></div></div><div class="score-label">OVERALL</div></div>
+      <div class="score-card"><div class="score-val ${cls(s.accuracy)}">${s.accuracy}<span class="score-denom">/10</span></div><div class="score-bar"><div class="score-bar-fill ${fill(s.accuracy)}" style="width:${pct(s.accuracy)}%"></div></div><div class="score-label">ACCURACY</div></div>
+      <div class="score-card"><div class="score-val ${cls(s.completeness)}">${s.completeness}<span class="score-denom">/10</span></div><div class="score-bar"><div class="score-bar-fill ${fill(s.completeness)}" style="width:${pct(s.completeness)}%"></div></div><div class="score-label">COMPLETENESS</div></div>
+      <div class="score-card"><div class="score-val ${cls(s.actionability)}">${s.actionability}<span class="score-denom">/10</span></div><div class="score-bar"><div class="score-bar-fill ${fill(s.actionability)}" style="width:${pct(s.actionability)}%"></div></div><div class="score-label">ACTIONABILITY</div></div>
     </div>
-  `;
+    ${s.feedback ? `<div class="critic-feedback">"${escHtml(s.feedback)}"</div>` : ""}
+    ${s.revision_requests?.length ? `<div class="revision-chips">${s.revision_requests.map(r => `<span class="revision-chip">⚠ ${escHtml(r)}</span>`).join("")}</div>` : ""}
+  </div>`;
 }
 
 function renderTimeline(steps) {
-  if (!steps || !steps.length) return `<div style="color:var(--text-3);font-size:13px;padding:12px;">No steps yet...</div>`;
+  if (!steps?.length) return `<div class="timeline-empty">No steps yet…</div>`;
   return steps.map(s => {
-    const cfg = AGENT_CONFIG[s.agent] || { icon: "⚙️", label: s.agent };
-    const dur = s.completed_at
+    const cfg = AGENT_CONFIG[s.agent] || { icon: "⚙️", label: s.agent, color: "rgba(68,68,68,.1)" };
+    const dur = s.completed_at && s.started_at
       ? `${((new Date(s.completed_at) - new Date(s.started_at)) / 1000).toFixed(1)}s`
       : "";
     const isRunning = s.status === "started";
-    const metaParts = [];
-    if (dur) metaParts.push(dur);
-    if (s.metadata && Object.keys(s.metadata).length) {
-      const meta = s.metadata;
-      if (meta.searches) metaParts.push(`${meta.searches} searches`);
-      if (meta.files) metaParts.push(`${meta.files} files`);
-      if (meta.overall) metaParts.push(`score: ${meta.overall}`);
-      if (meta.chars) metaParts.push(`${(meta.chars/1000).toFixed(1)}k chars`);
-    }
-    return `
-      <div class="timeline-step step-${s.status}">
-        <div class="step-icon icon-${s.agent}">${cfg.icon}</div>
-        <div class="step-body">
-          <div class="step-agent agent-${s.agent}">${cfg.label}</div>
-          <div class="step-message">${escHtml(s.message || "")}</div>
-          ${metaParts.length ? `<div class="step-meta">${metaParts.join(" · ")}</div>` : ""}
-        </div>
-        ${isRunning ? `<span class="step-spinner">⟳</span>` : statusIcon(s.status)}
+    const statusIcons = { completed: "✅", failed: "❌", skipped: "⏭️" };
+
+    // Build meta line
+    const meta = [];
+    if (s.metadata?.searches) meta.push(`${s.metadata.searches} searches`);
+    if (s.metadata?.chars)    meta.push(`${(s.metadata.chars / 1000).toFixed(1)}k chars`);
+    if (s.metadata?.files)    meta.push(`${s.metadata.files} files`);
+
+    return `<div class="timeline-step">
+      <div class="step-icon" style="background:${cfg.color};border-color:${cfg.color}">${cfg.icon}</div>
+      <div class="step-body">
+        <div class="step-agent">${cfg.label}</div>
+        <div class="step-message">${escHtml(s.message || "")}</div>
+        ${meta.length ? `<div class="step-meta">${meta.join(" · ")}</div>` : ""}
       </div>
-    `;
+      <div class="step-right">
+        ${dur ? `<span class="step-dur">${dur}</span>` : ""}
+        ${isRunning
+          ? `<span class="step-spinner">↻</span>`
+          : `<span class="step-status-icon">${statusIcons[s.status] || ""}</span>`}
+      </div>
+    </div>`;
   }).join("");
 }
 
-function statusIcon(status) {
-  const icons = { completed: "✅", failed: "❌", skipped: "⏭️", started: "⟳" };
-  return `<span style="font-size:14px">${icons[status] || ""}</span>`;
-}
-
-// ─── Report Modal ─────────────────────────────────────────────────────
+// ── Report Modal ───────────────────────────────────────────────────────
 let currentReportMd = "";
 
 async function openReport(runId) {
   document.getElementById("reportModal").classList.add("open");
-  document.getElementById("reportModalBody").innerHTML = `<div class="report-loading">⏳ Loading report...</div>`;
-
+  document.getElementById("reportModalBody").innerHTML = `<div class="report-loading">⏳ LOADING REPORT…</div>`;
   try {
     const res = await fetch(`/report/${runId}`);
-    if (!res.ok) throw new Error("Report not found");
+    if (!res.ok) throw new Error("Not found");
     const data = await res.json();
     currentReportMd = data.report_markdown;
     document.getElementById("reportModalTitle").textContent = `📄 ${data.topic}`;
     document.getElementById("reportModalBody").innerHTML = `<div class="report-md">${simpleMarkdown(data.report_markdown)}</div>`;
   } catch (e) {
-    document.getElementById("reportModalBody").innerHTML = `<div class="report-loading" style="color:var(--red)">Failed to load report: ${e.message}</div>`;
+    document.getElementById("reportModalBody").innerHTML = `<div class="report-loading" style="color:#b84040">Failed: ${escHtml(e.message)}</div>`;
   }
 }
 
-function closeReportModal() {
-  document.getElementById("reportModal").classList.remove("open");
-}
-
-function closeReportModalIfOutside(e) {
-  if (e.target === document.getElementById("reportModal")) closeReportModal();
-}
+function closeReportModal() { document.getElementById("reportModal").classList.remove("open"); }
+function closeReportModalIfOutside(e) { if (e.target === document.getElementById("reportModal")) closeReportModal(); }
 
 async function copyReport() {
   if (!currentReportMd) return;
   try {
     await navigator.clipboard.writeText(currentReportMd);
-    const btn = document.querySelector(".report-header-actions .btn-ghost");
-    if (btn) { btn.textContent = "✅ Copied!"; setTimeout(() => btn.textContent = "📋 Copy", 2000); }
-  } catch (e) {}
+    const btn = document.querySelector("#reportModal .btn-ghost");
+    if (btn) { btn.textContent = "✅ COPIED!"; setTimeout(() => btn.textContent = "📋 COPY", 2000); }
+  } catch {}
 }
 
-// ─── Trigger Modal ────────────────────────────────────────────────────
+// ── Trigger Modal ──────────────────────────────────────────────────────
 function openTriggerModal() {
   document.getElementById("triggerModal").classList.add("open");
   setTimeout(() => document.getElementById("topicInput").focus(), 100);
 }
-
 function closeTriggerModal() {
   document.getElementById("triggerModal").classList.remove("open");
+  document.getElementById("submitLabel").textContent = "▶ LAUNCH";
+  document.getElementById("submitTrigger").disabled = false;
 }
-
-function closeTriggerModalIfOutside(e) {
-  if (e.target === document.getElementById("triggerModal")) closeTriggerModal();
-}
-
-function setTopic(topic) {
-  document.getElementById("topicInput").value = topic;
-  document.getElementById("topicInput").focus();
-}
+function closeTriggerModalIfOutside(e) { if (e.target === document.getElementById("triggerModal")) closeTriggerModal(); }
+function setTopic(t) { document.getElementById("topicInput").value = t; document.getElementById("topicInput").focus(); }
 
 async function submitTrigger() {
   const topic = document.getElementById("topicInput").value.trim();
   if (!topic) {
-    document.getElementById("topicInput").style.borderColor = "var(--red)";
-    setTimeout(() => document.getElementById("topicInput").style.borderColor = "", 1500);
+    const inp = document.getElementById("topicInput");
+    inp.style.borderColor = "#b84040";
+    setTimeout(() => inp.style.borderColor = "", 1500);
     return;
   }
-
   const btn = document.getElementById("submitTrigger");
-  const label = document.getElementById("submitLabel");
-  btn.disabled = true;
-  label.textContent = "⏳ Launching...";
-
+  const lbl = document.getElementById("submitLabel");
+  btn.disabled = true; lbl.textContent = "⏳ LAUNCHING…";
   try {
-    const body = {
-      topic,
-      repo: document.getElementById("repoInput").value.trim() || null,
-      context: document.getElementById("contextInput").value.trim() || null,
-    };
     const res = await fetch("/trigger", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic, repo: document.getElementById("repoInput").value.trim() || null, context: document.getElementById("contextInput").value.trim() || null }),
     });
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
-
     closeTriggerModal();
-    document.getElementById("topicInput").value = "";
-    document.getElementById("repoInput").value = "";
-    document.getElementById("contextInput").value = "";
-
-    // Refresh and select new run
+    ["topicInput","repoInput","contextInput"].forEach(id => document.getElementById(id).value = "");
+    setTimeout(() => scrollToDashboard(), 150);
     await fetchRuns();
-    setTimeout(() => selectRun(data.run_id), 300);
+    setTimeout(() => selectRun(data.run_id), 400);
   } catch (e) {
-    label.textContent = `❌ Error: ${e.message}`;
-    setTimeout(() => label.textContent = "▶ Launch Pipeline", 3000);
-  } finally {
-    btn.disabled = false;
-    label.textContent = "▶ Launch Pipeline";
+    lbl.textContent = "❌ ERROR";
+    setTimeout(() => { lbl.textContent = "▶ LAUNCH"; btn.disabled = false; }, 3000);
   }
 }
 
-// Enter key submit
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    closeTriggerModal();
-    closeReportModal();
-  }
-  if (e.key === "Enter" && document.getElementById("triggerModal").classList.contains("open")) {
-    submitTrigger();
-  }
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { closeTriggerModal(); closeReportModal(); }
+  if (e.key === "Enter" && document.getElementById("triggerModal").classList.contains("open") && document.activeElement?.tagName !== "TEXTAREA") submitTrigger();
 });
 
-// ─── Utilities ────────────────────────────────────────────────────────
-function escHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str || "";
-  return div.innerHTML;
+// ── Utilities ──────────────────────────────────────────────────────────
+function escHtml(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+function relativeTime(iso) {
+  if (!iso) return "—";
+  const d = (Date.now() - new Date(iso)) / 1000;
+  if (d < 5) return "just now";
+  if (d < 60) return `${Math.floor(d)}s ago`;
+  if (d < 3600) return `${Math.floor(d/60)}m ago`;
+  if (d < 86400) return `${Math.floor(d/3600)}h ago`;
+  return `${Math.floor(d/86400)}d ago`;
 }
 
-function relativeTime(isoStr) {
-  const diff = (Date.now() - new Date(isoStr)) / 1000;
-  if (diff < 60) return `${Math.floor(diff)}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-// Minimal markdown renderer (no external lib needed)
 function simpleMarkdown(md) {
   if (!md) return "";
   return md
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    // Headers
-    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    // Bold/italic
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    // Code
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // Table rows (basic)
-    .replace(/^\|(.+)\|$/gm, (line) => {
-      const cells = line.split("|").filter(Boolean).map(c => c.trim());
-      const isHeader = cells.some(c => /^[-:]+$/.test(c));
-      if (isHeader) return "";
-      const tag = line.includes("---") ? "th" : "td";
-      return "<tr>" + cells.map(c => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
-    })
-    // HR
-    .replace(/^---+$/gm, "<hr>")
-    // Bullet lists
-    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/```[\s\S]*?```/g, b => `<pre class="report-code-block"><code>${b.replace(/^```[^\n]*\n?/,"").replace(/\n?```$/,"")}</code></pre>`)
+    .replace(/^### (.+)$/gm,"<h3>$1</h3>")
+    .replace(/^## (.+)$/gm,"<h2>$1</h2>")
+    .replace(/^# (.+)$/gm,"<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g,"<em>$1</em>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/^---+$/gm,"<hr>")
+    .replace(/^- (.+)$/gm,"<li>$1</li>")
     .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
-    // Numbered lists
-    .replace(/^\d+\. (.+)$/gm, "<li>$1</li>")
-    // Paragraphs
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/^(?!<[huplti])(.+)$/gm, "$1")
-    .replace(/^(.+)$/, "<p>$1</p>");
+    .replace(/\n\n/g,"</p><p>")
+    .replace(/^(?!<[hupoli])(.+)$/gm,"$1");
 }
