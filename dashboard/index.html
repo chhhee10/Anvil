@@ -4,7 +4,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ANVIL — Autonomous PR Review Pipeline</title>
+  <title>PullSmith</title>
+  <link rel="icon" type="image/svg+xml" href="img/pullsmith.svg">
   <meta name="description" content="Multi-agent autonomous PR review pipeline with live updates." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -20,14 +21,11 @@
   <nav class="nav" id="nav">
     <div class="nav-logo">
       <span>⚒</span>
-      <span>ANVIL</span>
+      <span>PullSmith</span>
     </div>
     <div class="nav-links">
       <a href="#about" class="nav-link">ABOUT</a>
       <a href="#dashboard" class="nav-link">DASHBOARD</a>
-    </div>
-    <div class="nav-right">
-      <button class="btn-cta" onclick="openTriggerModal()">NEW RUN →</button>
     </div>
   </nav>
 
@@ -41,29 +39,28 @@
       </h1>
     </div>
 
-    <!-- FLIP CARDS -->
+    <!-- FLIP CARDS — 7 agents -->
     <div class="cards-row">
 
+      <!-- 01 ORCHESTRATOR (dark brown, white pixel) -->
       <div class="flip-card" style="--card-offset: 0px">
         <div class="flip-card-inner">
-          <div class="flip-card-front fc-cream">
-            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+          <div class="flip-card-front fc-brown">
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
             <div class="fc-body">
-              <div class="fc-icon">
-                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="8" y="4" width="4" height="4" fill="#fff" opacity=".9"/>
-                  <rect x="16" y="4" width="4" height="4" fill="#fff" opacity=".9"/>
-                  <rect x="4" y="8" width="20" height="2" fill="#fff"/>
-                  <rect x="2" y="10" width="24" height="8" rx="1" fill="#fff"/>
-                  <rect x="6" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
-                  <rect x="10" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
-                  <rect x="14" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
-                  <rect x="18" y="12" width="2" height="4" fill="#3a3028" opacity=".8"/>
-                  <rect x="4" y="18" width="20" height="2" fill="#fff"/>
-                  <rect x="8" y="20" width="4" height="4" fill="#fff" opacity=".9"/>
-                  <rect x="16" y="20" width="4" height="4" fill="#fff" opacity=".9"/>
-                </svg>
-              </div>
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="8" y="4" width="4" height="4" fill="#fff" opacity=".9" />
+                  <rect x="16" y="4" width="4" height="4" fill="#fff" opacity=".9" />
+                  <rect x="4" y="8" width="20" height="2" fill="#fff" />
+                  <rect x="2" y="10" width="24" height="8" rx="1" fill="#fff" />
+                  <rect x="6" y="12" width="2" height="4" fill="#3a3028" opacity=".8" />
+                  <rect x="10" y="12" width="2" height="4" fill="#3a3028" opacity=".8" />
+                  <rect x="14" y="12" width="2" height="4" fill="#3a3028" opacity=".8" />
+                  <rect x="18" y="12" width="2" height="4" fill="#3a3028" opacity=".8" />
+                  <rect x="4" y="18" width="20" height="2" fill="#fff" />
+                  <rect x="8" y="20" width="4" height="4" fill="#fff" opacity=".9" />
+                  <rect x="16" y="20" width="4" height="4" fill="#fff" opacity=".9" />
+                </svg></div>
               <div class="fc-watermark">01</div>
             </div>
             <div class="fc-footer"><span class="fc-name">ORCHESTRATOR</span><span class="fc-num">01</span></div>
@@ -76,122 +73,206 @@
               <li>▪ Builds QualityPlan</li>
               <li>▪ Classifies risk level</li>
               <li>▪ Fan-out to agents</li>
-              <li>▪ Gemini / Groq fallback</li>
+              <li>▪ Gemini / Groq routing</li>
             </ul>
-            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
           </div>
         </div>
       </div>
 
-      <div class="flip-card" style="--card-offset: -24px">
+      <!-- 02 PR REVIEWER (accent red, black pixel) -->
+      <div class="flip-card" style="--card-offset: -20px">
         <div class="flip-card-inner">
           <div class="flip-card-front fc-red">
-            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
             <div class="fc-body">
-              <div class="fc-icon">
-                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="8" y="4" width="10" height="2" fill="#111"/>
-                  <rect x="6" y="6" width="2" height="10" fill="#111"/>
-                  <rect x="18" y="6" width="2" height="10" fill="#111"/>
-                  <rect x="8" y="16" width="10" height="2" fill="#111"/>
-                  <rect x="10" y="8" width="6" height="6" fill="#111" opacity=".15"/>
-                  <rect x="16" y="18" width="2" height="2" fill="#111"/>
-                  <rect x="18" y="20" width="2" height="2" fill="#111"/>
-                  <rect x="20" y="22" width="4" height="2" fill="#111"/>
-                  <rect x="22" y="20" width="2" height="2" fill="#111"/>
-                </svg>
-              </div>
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="8" y="4" width="10" height="2" fill="#111" />
+                  <rect x="6" y="6" width="2" height="10" fill="#111" />
+                  <rect x="18" y="6" width="2" height="10" fill="#111" />
+                  <rect x="8" y="16" width="10" height="2" fill="#111" />
+                  <rect x="10" y="8" width="6" height="6" fill="#111" opacity=".15" />
+                  <rect x="16" y="18" width="2" height="2" fill="#111" />
+                  <rect x="18" y="20" width="2" height="2" fill="#111" />
+                  <rect x="20" y="22" width="4" height="2" fill="#111" />
+                </svg></div>
               <div class="fc-watermark">02</div>
             </div>
-            <div class="fc-footer"><span class="fc-name">RESEARCHER</span><span class="fc-num">02</span></div>
+            <div class="fc-footer"><span class="fc-name">PR REVIEWER</span><span class="fc-num">02</span></div>
           </div>
           <div class="flip-card-back">
             <div class="fc-back-num">02</div>
-            <div class="fc-back-title">Reviewer + Scanner</div>
+            <div class="fc-back-title">PR Reviewer</div>
             <ul class="fc-back-list">
-              <li>▪ Code quality & bugs</li>
-              <li>▪ Style & logic review</li>
-              <li>▪ Secrets detection</li>
-              <li>▪ Injection patterns</li>
-              <li>▪ Run concurrently</li>
+              <li>▪ Code quality scoring</li>
+              <li>▪ Bug detection</li>
+              <li>▪ Style &amp; logic review</li>
+              <li>▪ APPROVE / REJECT</li>
+              <li>▪ Groq Llama 3.3</li>
             </ul>
-            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
           </div>
         </div>
       </div>
 
-      <div class="flip-card" style="--card-offset: -12px">
+      <!-- 03 SECURITY SCANNER (blue, white pixel) -->
+      <div class="flip-card" style="--card-offset: -10px">
         <div class="flip-card-inner">
           <div class="flip-card-front fc-blue">
-            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
             <div class="fc-body">
-              <div class="fc-icon">
-                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="4" y="6" width="20" height="14" fill="#fff" opacity=".1"/>
-                  <rect x="4" y="6" width="20" height="2" fill="#fff"/>
-                  <rect x="4" y="6" width="2" height="14" fill="#fff"/>
-                  <rect x="22" y="6" width="2" height="14" fill="#fff"/>
-                  <rect x="4" y="18" width="20" height="2" fill="#fff"/>
-                  <rect x="6" y="10" width="16" height="6" fill="#fff" opacity=".15"/>
-                  <rect x="8" y="12" width="2" height="2" fill="#fff" opacity=".8"/>
-                  <rect x="12" y="12" width="6" height="2" fill="#fff" opacity=".8"/>
-                  <rect x="2" y="20" width="24" height="2" fill="#fff" opacity=".5"/>
-                </svg>
-              </div>
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="10" y="2" width="8" height="2" fill="#fff" />
+                  <rect x="8" y="4" width="2" height="14" fill="#fff" />
+                  <rect x="18" y="4" width="2" height="14" fill="#fff" />
+                  <rect x="10" y="18" width="8" height="2" fill="#fff" />
+                  <rect x="12" y="6" width="4" height="4" fill="#fff" opacity=".4" />
+                  <rect x="12" y="20" width="4" height="4" fill="#fff" opacity=".6" />
+                  <rect x="10" y="10" width="8" height="2" fill="#fff" opacity=".5" />
+                </svg></div>
               <div class="fc-watermark">03</div>
             </div>
-            <div class="fc-footer"><span class="fc-name">CODE ANALYST</span><span class="fc-num">03</span></div>
+            <div class="fc-footer"><span class="fc-name">SECURITY</span><span class="fc-num">03</span></div>
           </div>
           <div class="flip-card-back">
             <div class="fc-back-num">03</div>
-            <div class="fc-back-title">Test Generator</div>
+            <div class="fc-back-title">Security Scanner</div>
             <ul class="fc-back-list">
-              <li>■ Diff & patch analysis</li>
-              <li>■ Breaking changes</li>
-              <li>■ Security scanning</li>
-              <li>■ Perf impact notes</li>
-              <li>■ GitHub API</li>
+              <li>▪ Secrets detection</li>
+              <li>▪ SQL injection scan</li>
+              <li>▪ XSS patterns</li>
+              <li>▪ CVE enrichment</li>
+              <li>▪ PASS / BLOCK</li>
             </ul>
-            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
           </div>
         </div>
       </div>
 
-      <div class="flip-card" style="--card-offset: -36px">
+      <!-- 04 TEST GENERATOR (teal, black pixel) -->
+      <div class="flip-card" style="--card-offset: -30px">
         <div class="flip-card-inner">
           <div class="flip-card-front fc-teal">
-            <div class="fc-header"><span class="fc-tag">ANVIL·26</span><span>CF</span></div>
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
             <div class="fc-body">
-              <div class="fc-icon">
-                <svg width="32" height="32" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="12" y="2" width="4" height="2" fill="#111"/>
-                  <rect x="8" y="4" width="12" height="2" fill="#111"/>
-                  <rect x="6" y="6" width="2" height="16" fill="#111"/>
-                  <rect x="20" y="6" width="2" height="16" fill="#111"/>
-                  <rect x="8" y="22" width="12" height="2" fill="#111"/>
-                  <rect x="12" y="24" width="4" height="2" fill="#111"/>
-                  <rect x="10" y="8" width="8" height="2" fill="#111" opacity=".6"/>
-                  <rect x="8" y="10" width="2" height="8" fill="#111" opacity=".6"/>
-                  <rect x="18" y="10" width="2" height="8" fill="#111" opacity=".6"/>
-                  <rect x="10" y="18" width="8" height="2" fill="#111" opacity=".6"/>
-                  <rect x="12" y="12" width="4" height="4" fill="#111"/>
-                </svg>
-              </div>
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="10" y="2" width="8" height="2" fill="#111" />
+                  <rect x="8" y="4" width="12" height="2" fill="#111" />
+                  <rect x="12" y="6" width="4" height="12" fill="#111" />
+                  <rect x="6" y="18" width="16" height="2" fill="#111" />
+                  <rect x="4" y="20" width="6" height="4" fill="#111" opacity=".7" />
+                  <rect x="18" y="20" width="6" height="4" fill="#111" opacity=".7" />
+                </svg></div>
               <div class="fc-watermark">04</div>
             </div>
-            <div class="fc-footer"><span class="fc-name">CRITIC</span><span class="fc-num">04</span></div>
+            <div class="fc-footer"><span class="fc-name">TESTS</span><span class="fc-num">04</span></div>
           </div>
           <div class="flip-card-back">
             <div class="fc-back-num">04</div>
+            <div class="fc-back-title">Test Generator</div>
+            <ul class="fc-back-list">
+              <li>▪ Generates pytest suites</li>
+              <li>▪ Sandbox execution</li>
+              <li>▪ Pass/fail reporting</li>
+              <li>▪ Coverage analysis</li>
+              <li>▪ Function-level tests</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 05 SELF HEALER (warm amber, white pixel) -->
+      <div class="flip-card" style="--card-offset: -8px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-amber">
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="12" y="2" width="4" height="6" fill="#fff" />
+                  <rect x="8" y="8" width="12" height="2" fill="#fff" />
+                  <rect x="12" y="10" width="4" height="8" fill="#fff" />
+                  <rect x="6" y="14" width="4" height="2" fill="#fff" opacity=".7" />
+                  <rect x="18" y="14" width="4" height="2" fill="#fff" opacity=".7" />
+                  <rect x="10" y="20" width="8" height="2" fill="#fff" opacity=".6" />
+                  <rect x="8" y="22" width="12" height="2" fill="#fff" opacity=".4" />
+                </svg></div>
+              <div class="fc-watermark">05</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">SELF HEALER</span><span class="fc-num">05</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">05</div>
+            <div class="fc-back-title">Self Healer</div>
+            <ul class="fc-back-list">
+              <li>▪ Auto-fix failed tests</li>
+              <li>▪ Up to 3 attempts</li>
+              <li>▪ Patch generation</li>
+              <li>▪ Re-run validation</li>
+              <li>▪ Gemini powered</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06 DECISION AGENT (slate, black pixel) -->
+      <div class="flip-card" style="--card-offset: -24px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-slate">
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="4" y="12" width="20" height="2" fill="#111" />
+                  <rect x="4" y="8" width="2" height="10" fill="#111" />
+                  <rect x="22" y="8" width="2" height="10" fill="#111" />
+                  <rect x="12" y="4" width="4" height="6" fill="#111" />
+                  <rect x="12" y="16" width="4" height="6" fill="#111" />
+                  <rect x="8" y="6" width="2" height="2" fill="#111" opacity=".5" />
+                  <rect x="18" y="6" width="2" height="2" fill="#111" opacity=".5" />
+                </svg></div>
+              <div class="fc-watermark">06</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">DECISION</span><span class="fc-num">06</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">06</div>
             <div class="fc-back-title">Decision Agent</div>
             <ul class="fc-back-list">
               <li>▪ MERGE / REJECT</li>
               <li>▪ MERGE_WITH_FIX</li>
               <li>▪ BUG_REPORT → Issue</li>
+              <li>▪ Score breakdown</li>
               <li>▪ GitHub API actions</li>
-              <li>▪ Commit status check</li>
             </ul>
-            <button class="fc-back-btn" onclick="scrollToDashboard()">OPEN PIPELINE →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 07 RESEARCHER (deep plum, white pixel) -->
+      <div class="flip-card" style="--card-offset: -16px">
+        <div class="flip-card-inner">
+          <div class="flip-card-front fc-plum">
+            <div class="fc-header"><span class="fc-tag">PullSmith·26</span><span>CF</span></div>
+            <div class="fc-body">
+              <div class="fc-icon"><svg width="32" height="32" viewBox="0 0 28 28" fill="none">
+                  <rect x="6" y="4" width="16" height="2" fill="#fff" />
+                  <rect x="6" y="4" width="2" height="20" fill="#fff" />
+                  <rect x="20" y="4" width="2" height="20" fill="#fff" />
+                  <rect x="6" y="22" width="16" height="2" fill="#fff" />
+                  <rect x="10" y="8" width="8" height="2" fill="#fff" opacity=".5" />
+                  <rect x="10" y="12" width="8" height="2" fill="#fff" opacity=".5" />
+                  <rect x="10" y="16" width="6" height="2" fill="#fff" opacity=".5" />
+                </svg></div>
+              <div class="fc-watermark">07</div>
+            </div>
+            <div class="fc-footer"><span class="fc-name">RESEARCHER</span><span class="fc-num">07</span></div>
+          </div>
+          <div class="flip-card-back">
+            <div class="fc-back-num">07</div>
+            <div class="fc-back-title">Researcher</div>
+            <ul class="fc-back-list">
+              <li>▪ Gathers web context</li>
+              <li>▪ Researches PR topics</li>
+              <li>▪ Summarizes findings</li>
+              <li>▪ Enriches review plan</li>
+              <li>▪ Tavily search support</li>
+            </ul>
           </div>
         </div>
       </div>
@@ -204,8 +285,8 @@
   <!-- ═══ SCROLL-REVEAL ABOUT ═══ -->
   <section class="about" id="about">
     <div class="about-inner">
-      <div class="about-label">WHAT IS ANVIL?</div>
-      <p class="reveal-text" id="revealText">When a PR opens, ANVIL takes over. Seven specialized agents fan out in
+      <div class="about-label">WHAT IS PullSmith?</div>
+      <p class="reveal-text" id="revealText">When a PR opens, PullSmith takes over. Seven specialized agents fan out in
         parallel — reviewing code quality, scanning for secrets and injection patterns, generating and running real
         pytest suites against the PR branch. If tests fail, a Self-Healer attempts up to three automated fixes. A
         Decision Agent then issues the final verdict: merge, reject, or file a GitHub Issue. No human needed, ever.</p>
@@ -245,7 +326,7 @@
           <div class="dash-run-list" id="runList">
             <div class="dash-empty">
               <div class="dash-empty-icon">⚙</div>
-              <p>No runs yet.<br>Click NEW RUN to start.</p>
+              <p>No runs yet.<br>Waiting for pipeline activity.</p>
             </div>
           </div>
         </div>
@@ -257,9 +338,9 @@
             <p>Select a run to view<br>the detailed report.</p>
             <div class="dash-feature-grid">
               <div class="dash-feature">📡<span>WEBHOOK TRIGGERED</span></div>
-              <div class="dash-feature">🤖<span>5 AGENTS</span></div>
-              <div class="dash-feature">🔍<span>CODE ANALYSIS</span></div>
-              <div class="dash-feature">🎯<span>CRITIC SCORING</span></div>
+              <div class="dash-feature">🤖<span>7 AGENTS</span></div>
+              <div class="dash-feature">🔍<span>PR REVIEW</span></div>
+              <div class="dash-feature">🎯<span>FINAL DECISION</span></div>
             </div>
           </div>
         </div>
@@ -273,11 +354,10 @@
     <!-- Upper: CTA section -->
     <div class="footer-cta">
       <div class="footer-cta-left">
-        <p class="footer-cta-label">Want to integrate ANVIL into your workflow?</p>
-        <p class="footer-cta-sub">Set up the webhook once. Every PR gets reviewed, tested, and merged — or rejected — autonomously.</p>
-        <a href="https://github.com" target="_blank" class="footer-email">github.com/anvil-pipeline</a>
-        <p class="footer-cta-sub" style="margin-top:24px">Or trigger a manual run right now.</p>
-        <button class="btn-cta" onclick="openTriggerModal()" style="margin-top:12px">NEW RUN →</button>
+        <p class="footer-cta-label">Want to integrate PullSmith into your workflow?</p>
+        <p class="footer-cta-sub">Set up the webhook once. Every PR gets reviewed, tested, and merged — or rejected —
+          autonomously.</p>
+        <div class="footer-email">Powered by Omium SDK</div>
       </div>
     </div>
 
@@ -285,7 +365,7 @@
     <div class="footer-bottom">
       <div class="footer-bottom-inner">
         <div class="footer-b-col">
-          <div class="footer-logo">⚒ ANVIL</div>
+          <div class="footer-logo">⚒ PullSmith</div>
         </div>
         <div class="footer-b-col">
           <div class="footer-b-heading">AGENTS</div>
@@ -295,6 +375,7 @@
           <span>Test Generator</span>
           <span>Self Healer</span>
           <span>Decision Agent</span>
+          <span>Researcher</span>
         </div>
         <div class="footer-b-col">
           <div class="footer-b-heading">NAVIGATE</div>
@@ -310,7 +391,7 @@
           <span>FastAPI</span>
         </div>
         <div class="footer-b-col footer-b-right">
-          <span>2026 / ANVIL Pipeline</span>
+          <span>2026 / PullSmith Pipeline</span>
         </div>
       </div>
     </div>

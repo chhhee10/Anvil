@@ -11,9 +11,6 @@ const AGENT_CONFIG = {
   self_healer:      { icon: "🔧", label: "Self Healer",        color: "rgba(100,80,200,.12)" },
   decision_agent:   { icon: "⚖️",  label: "Decision Agent",     color: "rgba(201,74,46,.12)" },
   researcher:       { icon: "📡", label: "Researcher",         color: "rgba(45,95,160,.12)" },
-  code_analyst:     { icon: "💻", label: "Code Analyst",       color: "rgba(58,125,82,.12)" },
-  writer:           { icon: "✍️",  label: "Writer",             color: "rgba(100,80,200,.12)" },
-  critic:           { icon: "🎯", label: "Critic",             color: "rgba(184,134,42,.12)" },
   system:           { icon: "⚙️",  label: "System",             color: "rgba(68,68,68,.1)" },
 };
 const EVENT_LABELS = { push:"PUSH", pull_request:"PR", issues:"ISSUE", manual:"MANUAL", scheduled:"SCHED" };
@@ -128,7 +125,7 @@ function renderRunList() {
   if (!filteredRuns.length) {
     list.innerHTML = runs.length
       ? `<div class="dash-empty"><span class="dash-empty-icon">🔍</span><p>No matches found.</p></div>`
-      : `<div class="dash-empty"><span class="dash-empty-icon">⚙</span><p>No runs yet.<br>Click NEW RUN to start.</p></div>`;
+      : `<div class="dash-empty"><span class="dash-empty-icon">⚙</span><p>No runs yet.<br>Waiting for pipeline activity.</p></div>`;
     return;
   }
   list.innerHTML = filteredRuns.map(r => `
