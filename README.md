@@ -9,13 +9,13 @@ PullSmith is a production-grade, multi-agent autonomous pipeline that eliminates
 ## Screenshots
 
 ### Hero Dashboard
-![Hero Dashboard](./img/hero.png)
+![Hero Dashboard](https://raw.githubusercontent.com/Vijeta-Patel/ANVIL/main/dashboard/img/hero.png)
 
 ### Activity Log — Live Pipeline Run
-![Activity Log](./img/activity_log.png)
+![Activity Log](https://raw.githubusercontent.com/Vijeta-Patel/ANVIL/main/dashboard/img/activitylog.png)
 
 ### Omium Trace View
-![Omium Trace](./img/omium_trace.png)
+![Omium Trace](https://raw.githubusercontent.com/Vijeta-Patel/ANVIL/main/dashboard/img/omium.png)
 
 ---
 
@@ -83,7 +83,7 @@ GitHub PR Event
 ┌─────────────────────────────────────────────────────┐
 │              FastAPI Server (main.py)               │
 │  HMAC-verified webhook → BackgroundTask             │
-│  SSE event bus → live dashboard push               │
+│  SSE event bus → live dashboard push                │
 └──────────────────────┬──────────────────────────────┘
                        │
                        ▼
@@ -105,7 +105,7 @@ GitHub PR Event
           │   asyncio.gather    │   Fan-out parallelism
           │                     │
     ┌─────▼──────┐    ┌─────────▼───────┐
-    │ PR Reviewer │    │ Security Scanner │
+    │ PR Reviewer│    │ Security Scanner│
     │  Groq 70B  │    │   Groq 70B      │
     └─────┬──────┘    └─────────┬───────┘
           └──────────┬──────────┘
@@ -274,13 +274,14 @@ All results persisted to SQLite. SSE `complete` event fires with the final run s
 PullSmith never fails because one API key rate-limits. The `model_router.py` builds an automatic fallback chain across multiple Groq models and optionally OpenRouter:
 
 ```
-Primary:   Groq llama-3.3-70b-versatile   (key 1)
-Fallback 1: Groq mixtral-8x7b-32768        (key 1)
-Fallback 2: Groq llama3-70b-8192           (key 1)
-Fallback 3: Groq gemma2-9b-it             (key 1)
-Fallback 4: Groq llama-3.1-8b-instant     (key 1)
+Primary: Groq llama-3.3-70b-versatile   (key 1)
+Fallback 1: Groq mixtral-8x7b-32768     (key 1)
+Fallback 2: Groq llama3-70b-8192        (key 1)
+Fallback 3: Groq gemma2-9b-it           (key 1)
+Fallback 4: Groq llama-3.1-8b-instant   (key 1)
 ... (repeated for GROQ_API_KEY_2, _3, _4 if set)
-Final:      OpenRouter free tier (meta-llama/llama-3.3-70b)
+
+Final: OpenRouter free tier (meta-llama/llama-3.3-70b)
 ```
 
 LangChain's `.with_fallbacks()` handles the chain automatically. Structured output (Pydantic models) is applied per model in the chain. The Orchestrator and Decision Agent use Gemini 2.0 Flash directly for superior structured output fidelity on complex schemas.
@@ -308,7 +309,7 @@ PipelineRun (SQLite)
 ├── decision        PRDecision (JSON)
 ├── github_comment_url  String
 ├── github_issue_url    String
-└── status          pending → running → completed | failed
+└── status          pending → running → completed|failed
 
 AgentStep (SQLite)
 ├── step_id         UUID
@@ -518,5 +519,6 @@ pullsmith/
 | **Omium Bonus (+10%)** | `@omium.trace(...)` on every agent: `full_pipeline`, `orchestrator_plan`, `run_researcher`, `pr_reviewer`, `security_scanner`, `test_generator`, `self_healer`, `decision_agent`. Causal parent-child linking. Dashboard matches demo exactly. |
 
 ---
-
-**PR in. Prod out.**
+<div align='center'>
+PR in. Prod out.
+</div>
