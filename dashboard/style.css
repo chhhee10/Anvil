@@ -415,7 +415,7 @@ body {
   font-family: 'DM Mono', monospace;
   font-size: 10px;
   letter-spacing: .1em;
-  color: rgba(255,255,255,.4);
+  color: rgba(255, 255, 255, .4);
   margin-bottom: 6px
 }
 
@@ -433,7 +433,7 @@ body {
   font-size: 10px;
   line-height: 2;
   letter-spacing: .04em;
-  color: rgba(255,255,255,.85);
+  color: rgba(255, 255, 255, .85);
   flex: 1
 }
 
@@ -1155,7 +1155,9 @@ body {
 }
 
 /* Make sections above float over footer */
-.hero, .about, .dash-section {
+.hero,
+.about,
+.dash-section {
   position: relative;
   z-index: 2;
   background: var(--bg)
@@ -1178,7 +1180,7 @@ body {
 .footer-cta-sub {
   font-family: 'DM Mono', monospace;
   font-size: 12px;
-  color: rgba(255,255,255,.65);
+  color: rgba(255, 255, 255, .65);
   line-height: 1.7;
   max-width: 500px;
   letter-spacing: .02em
@@ -1201,7 +1203,7 @@ body {
 
 /* Bottom bar */
 .footer-bottom {
-  border-top: 1px solid rgba(255,255,255,.08);
+  border-top: 1px solid rgba(255, 255, 255, .08);
   padding: 32px 7% 28px
 }
 
@@ -1217,14 +1219,14 @@ body {
   gap: 6px;
   font-family: 'DM Mono', monospace;
   font-size: 11px;
-  color: rgba(255,255,255,.6);
+  color: rgba(255, 255, 255, .6);
   letter-spacing: .04em
 }
 
 .footer-b-col a {
   font-family: 'DM Mono', monospace;
   font-size: 11px;
-  color: rgba(255,255,255,.6);
+  color: rgba(255, 255, 255, .6);
   text-decoration: none;
   letter-spacing: .04em;
   transition: color .2s
@@ -1238,7 +1240,7 @@ body {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: .16em;
-  color: rgba(255,255,255,.75);
+  color: rgba(255, 255, 255, .75);
   margin-bottom: 4px
 }
 
