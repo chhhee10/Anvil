@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Optional, List
 import aiosqlite
 
+import omium
 from models.schemas import (
     PipelineRun, AgentStep, PRDecision, RunStatus,
     AgentName, StepStatus, EventType, QualityPlan,
@@ -62,6 +63,7 @@ async def init_db():
     logger.info("Database initialized at %s", DB_PATH)
 
 
+@omium.trace()
 async def create_run(run: PipelineRun) -> PipelineRun:
     """Persist a new pipeline run."""
     async with aiosqlite.connect(DB_PATH) as db:
@@ -88,6 +90,7 @@ async def create_run(run: PipelineRun) -> PipelineRun:
     return run
 
 
+@omium.trace()
 async def update_run_status(run_id: str, status: RunStatus, error: str = None):
     """Update pipeline run status."""
     now = datetime.utcnow().isoformat()
@@ -101,6 +104,7 @@ async def update_run_status(run_id: str, status: RunStatus, error: str = None):
         await db.commit()
 
 
+@omium.trace()
 async def save_decision(run_id: str, decision: PRDecision,
                         comment_url: str = None, issue_url: str = None):
     """Save the final PR decision to the run row."""
@@ -154,6 +158,7 @@ async def complete_step(step_id: str, status: StepStatus,
         await db.commit()
 
 
+@omium.trace()
 async def get_run(run_id: str) -> Optional[PipelineRun]:
     """Load a full pipeline run with its steps."""
     async with aiosqlite.connect(DB_PATH) as db:

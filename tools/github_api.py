@@ -15,6 +15,7 @@ from typing import Optional, List, Dict, Any
 
 import httpx
 from github import Github, GithubException
+import omium
 
 logger = logging.getLogger("qualityengine.github")
 
@@ -71,6 +72,7 @@ def fetch_pr_source_files(repo: str, paths: List[str], ref: str = "main") -> Dic
 
 
 
+@omium.trace()
 def get_pr_diff(repo: str, pr_number: int) -> str:
     """Fetch the full unified diff for a PR as a string."""
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
@@ -192,6 +194,7 @@ def post_pr_comment(repo: str, pr_number: int, body: str) -> Optional[str]:
         return None
 
 
+@omium.trace()
 def post_pr_review(repo: str, pr_number: int, commit_sha: str,
                    body: str, event: str = "COMMENT") -> Optional[str]:
     """
@@ -212,6 +215,7 @@ def post_pr_review(repo: str, pr_number: int, commit_sha: str,
         return None
 
 
+@omium.trace()
 def merge_pr(repo: str, pr_number: int, commit_title: str,
              commit_message: str = "") -> bool:
     """Merge the PR using squash merge."""

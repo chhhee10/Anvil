@@ -13,6 +13,8 @@ from typing import Any
 
 from langchain_groq import ChatGroq
 from langchain_core.language_models import BaseChatModel
+import omium
+from omium.langchain import OmiumCallbackHandler
 
 logger = logging.getLogger("qualityengine.router")
 
@@ -42,6 +44,7 @@ def _make_groq(model: str, temperature: float = 0.2, key: str = None, **kwargs) 
         model=model,
         api_key=key or os.environ["GROQ_API_KEY"],
         temperature=temperature,
+        callbacks=[OmiumCallbackHandler()],
         **kwargs,
     )
 
@@ -58,6 +61,7 @@ def _make_openrouter(temperature: float = 0.2) -> BaseChatModel | None:
             openai_api_key=key,
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=temperature,
+            callbacks=[OmiumCallbackHandler()],
             default_headers={
                 "HTTP-Referer": "https://github.com/chhhee10/ANVIL",
                 "X-Title": "QualityEngine AI",
